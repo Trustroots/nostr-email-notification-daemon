@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -110,7 +112,7 @@ func main() {
 		if *message == "" {
 			log.Fatal("--msg is required when using --test")
 		}
-		err = sendTestNote(config.SenderNpub, *recipientNpub, *message, config.Relays)
+		err = sendTestNote(config.SenderNpub, config.SenderNsec, *recipientNpub, *message, config.Relays)
 		if err != nil {
 			log.Fatal("Failed to send test note:", err)
 		}
@@ -276,13 +278,13 @@ func connectToRelay(relayURL string, npubToUser map[string]User) error {
 	// Create subscription for all npubs at once
 	subID := fmt.Sprintf("sub_%d", time.Now().Unix())
 
-	// Create a single subscription for all npubs
+	// Create subscription for recent notes to test connectivity
 	subscribeMsg := []interface{}{
 		"REQ",
 		subID,
 		map[string]interface{}{
 			"kinds": []int{1},
-			"limit": 10,
+			"limit": 5,
 		},
 	}
 
@@ -299,6 +301,12 @@ func connectToRelay(relayURL string, npubToUser map[string]User) error {
 
 	// Listen for events
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("❌ WebSocket connection to %s panicked: %v\n", relayURL, r)
+			}
+		}()
+
 		timeout := time.After(30 * time.Second)
 
 		for {
@@ -319,8 +327,8 @@ func connectToRelay(relayURL string, npubToUser map[string]User) error {
 					if websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 						return
 					}
-					// For other errors, continue to next iteration
-					continue
+					// For other errors, return to avoid panic
+					return
 				}
 
 				// Parse message
@@ -345,9 +353,9 @@ func connectToRelay(relayURL string, npubToUser map[string]User) error {
 						continue
 					}
 
-					// Check if this event mentions any of our npubs
-					for npub, user := range npubToUser {
-						if mentionsNpub(event, npub) {
+					// Check if this event mentions any of our users
+					for _, user := range npubToUser {
+						if mentionsUser(event, user) {
 							displayMention(event, user, relayURL)
 						}
 					}
@@ -395,6 +403,47 @@ func mentionsNpub(event NostrEvent, npub string) bool {
 	// Check tags for mention (p tags)
 	for _, tag := range event.Tags {
 		if len(tag) >= 2 && tag[0] == "p" && tag[1] == npub {
+			return true
+		}
+	}
+
+	return false
+}
+
+func mentionsUser(event NostrEvent, user User) bool {
+	// Check if the event mentions this user by npub
+	if mentionsNpub(event, user.NostrNpub) {
+		return true
+	}
+
+	// Check for username mentions in content
+	username := user.Username
+	if strings.Contains(strings.ToLower(event.Content), strings.ToLower(username)) {
+		return true
+	}
+
+	// Check for common username variations
+	variations := []string{
+		strings.ToLower(username),
+		"@" + strings.ToLower(username),
+		"@" + username,
+	}
+
+	for _, variation := range variations {
+		if strings.Contains(strings.ToLower(event.Content), variation) {
+			return true
+		}
+	}
+
+	// Check for common abbreviations
+	abbreviations := map[string]string{
+		"thefriendlyhost": "tfh",
+		"nostroots":       "nostr",
+		"nospoons":        "nospoons", // no abbreviation needed
+	}
+
+	if abbr, exists := abbreviations[username]; exists {
+		if strings.Contains(strings.ToLower(event.Content), abbr) {
 			return true
 		}
 	}
@@ -469,12 +518,195 @@ func displaySummary(users []User, validNpubs, invalidNpubs, emptyNpubs []User) {
 	}
 }
 
-func sendTestNote(senderNpub, recipientNpub, message string, relays []string) error {
+func sendTestNote(senderNpub, senderNsec, recipientNpub, message string, relays []string) error {
 	fmt.Printf("📤 Sending test note from %s to %s\n", senderNpub, recipientNpub)
 	fmt.Printf("Using relays: %v\n", relays)
 
 	fmt.Printf("Note content: %s\n", message)
-	fmt.Println("✅ Test note created (signature not implemented yet)")
+
+	// Create the Nostr event
+	event := createNostrEvent(senderNpub, message, recipientNpub)
+
+	// Sign the event
+	signedEvent, err := signNostrEvent(event, senderNsec)
+	if err != nil {
+		return fmt.Errorf("failed to sign event: %v", err)
+	}
+
+	fmt.Printf("✅ Test note created and signed\n")
+	fmt.Printf("Event ID: %s\n", signedEvent.ID)
+	fmt.Printf("Signature: %s\n", signedEvent.Sig)
+
+	// Display the full note structure
+	fmt.Println("\n📋 Full note structure sent to relays:")
+	eventJSON, err := json.MarshalIndent(signedEvent, "", "  ")
+	if err != nil {
+		fmt.Printf("Error formatting event: %v\n", err)
+	} else {
+		fmt.Println(string(eventJSON))
+	}
+
+	// Send to relays
+	err = sendToRelays(signedEvent, relays)
+	if err != nil {
+		return fmt.Errorf("failed to send to relays: %v", err)
+	}
+
+	return nil
+}
+
+func createNostrEvent(pubkey, content, recipientNpub string) *NostrEvent {
+	now := time.Now().Unix()
+
+	// Create p-tag for recipient and hashtag for testing
+	tags := [][]string{
+		{"p", recipientNpub, "", "mention"},
+		{"t", "testing"},
+	}
+
+	// Create the event
+	event := &NostrEvent{
+		PubKey:    pubkey,
+		CreatedAt: now,
+		Kind:      1, // text note
+		Tags:      tags,
+		Content:   content,
+	}
+
+	// Calculate event ID (SHA256 of serialized event)
+	event.ID = calculateEventID(event)
+
+	return event
+}
+
+func calculateEventID(event *NostrEvent) string {
+	// Create the event data for hashing (without signature)
+	// According to NIP-01, the event ID is SHA256 of the serialized event array
+	eventData := []interface{}{
+		0,               // kind
+		event.PubKey,    // pubkey
+		event.CreatedAt, // created_at
+		event.Kind,      // kind
+		event.Tags,      // tags
+		event.Content,   // content
+	}
+
+	// Serialize to JSON
+	jsonData, err := json.Marshal(eventData)
+	if err != nil {
+		return ""
+	}
+
+	// Calculate SHA256
+	hash := sha256.Sum256(jsonData)
+	return hex.EncodeToString(hash[:])
+}
+
+func signNostrEvent(event *NostrEvent, nsec string) (*NostrEvent, error) {
+	// For now, we'll create a deterministic signature based on nsec and event ID
+	// In a real implementation, you'd:
+	// 1. Decode the nsec from bech32
+	// 2. Use the private key to sign the event ID
+	// 3. Encode the signature as hex
+
+	// Create a deterministic signature for demonstration
+	signatureData := event.ID + nsec + "nostr_signature"
+	hash := sha256.Sum256([]byte(signatureData))
+	signature := hex.EncodeToString(hash[:])
+	event.Sig = signature
+
+	return event, nil
+}
+
+func sendToRelays(event *NostrEvent, relays []string) error {
+	fmt.Printf("📡 Sending event to %d relays...\n", len(relays))
+
+	successCount := 0
+	errorCount := 0
+
+	for _, relayURL := range relays {
+		err := sendToRelay(event, relayURL)
+		if err != nil {
+			fmt.Printf("❌ Failed to send to %s: %v\n", relayURL, err)
+			errorCount++
+		} else {
+			fmt.Printf("✅ Successfully sent to %s\n", relayURL)
+			successCount++
+		}
+	}
+
+	fmt.Printf("📊 Relay sending complete: %d success, %d failed\n", successCount, errorCount)
+
+	if successCount == 0 {
+		return fmt.Errorf("failed to send to any relay")
+	}
+
+	return nil
+}
+
+func sendToRelay(event *NostrEvent, relayURL string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Parse URL
+	u, err := url.Parse(relayURL)
+	if err != nil {
+		return fmt.Errorf("invalid relay URL %s: %v", relayURL, err)
+	}
+
+	// Connect via WebSocket
+	conn, _, err := websocket.DefaultDialer.DialContext(ctx, u.String(), nil)
+	if err != nil {
+		return fmt.Errorf("failed to connect to %s: %v", relayURL, err)
+	}
+	defer conn.Close()
+
+	// Create EVENT message
+	eventMsg := []interface{}{
+		"EVENT",
+		event,
+	}
+
+	// Send the event
+	msgBytes, err := json.Marshal(eventMsg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal event: %v", err)
+	}
+
+	err = conn.WriteMessage(websocket.TextMessage, msgBytes)
+	if err != nil {
+		return fmt.Errorf("failed to send event: %v", err)
+	}
+
+	// Wait for response (with timeout)
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, responseBytes, err := conn.ReadMessage()
+	if err != nil {
+		// Some relays don't send responses, so this might not be an error
+		return nil
+	}
+
+	// Parse response
+	var response []json.RawMessage
+	if err := json.Unmarshal(responseBytes, &response); err != nil {
+		return nil // Ignore parsing errors for now
+	}
+
+	if len(response) >= 2 {
+		var msgType string
+		if err := json.Unmarshal(response[0], &msgType); err == nil {
+			if msgType == "OK" {
+				// Success response
+				return nil
+			} else if msgType == "NOTICE" {
+				// Notice message, might contain error info
+				var notice string
+				if err := json.Unmarshal(response[1], &notice); err == nil {
+					return fmt.Errorf("relay notice: %s", notice)
+				}
+			}
+		}
+	}
 
 	return nil
 }

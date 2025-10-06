@@ -1,0 +1,9 @@
+# Go binaries
+*.exe
+*.test
+
+# OS files
+.DS_Store
+
+# Config with sensitive data
+config.json

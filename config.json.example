@@ -1,0 +1,12 @@
+{
+  "mongodb": {
+    "uri": "mongodb://localhost:27017",
+    "database": "trustroots"
+  },
+  "sender-npub": "profile-npub",
+  "sender-nsec": "profile-nsec",
+  "relays": [
+    "wss://relay.nomadwiki.org",
+    "wss://relay.trustroots.org"
+  ]
+}

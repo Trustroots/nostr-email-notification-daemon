@@ -8,16 +8,18 @@ You have received a new Nostr mention:
 "{{.EventContent}}"
 
 From: {{.SenderNIP5}} ({{.SenderNpub}})
+      https://trustroots.org/profile/nostroots
 Event ID: {{.EventID}}
 Created: {{.CreatedAt}}
 
 This mention was detected on the Trustroots Nostr relay network.
 
-View on Snort.social: https://snort.social/e/{{.EventID}}
+View on TRipchat: https://guaka.github.io/TRipchat/index.html#testing&eventid={{.EventID}}
 
 --
 Trustroots
 https://trustroots.org
 
-Remember, I'm just a little mail robot. Don't reply to this email directly.
-Contact us if you want to talk to a human: https://trustroots.org/support
+You can actually reply to this email directly, we will be happy to hear from you as we're still very early stage testing nostroots stuff.
+
+You are receiving this email because you have an active account on Trustroots and added a Nostr public key (npub) to your profile.

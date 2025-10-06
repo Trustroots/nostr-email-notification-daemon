@@ -1,6 +1,5 @@
 # Go binaries
-*.exe
-*.test
+nostremail
 
 # OS files
 .DS_Store
@@ -14,3 +13,6 @@ processed_notes.db
 
 # Docker volumes
 docker-data/
+
+
+

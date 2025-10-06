@@ -88,7 +88,7 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to load config:", err)
 	}
-	
+
 	// Override MongoDB URI with environment variable if set
 	if mongoURI := os.Getenv("MONGODB_URI"); mongoURI != "" {
 		config.MongoDB.URI = mongoURI
@@ -622,7 +622,7 @@ func getConfig() Config {
 	if mongoURI == "" {
 		mongoURI = "mongodb://localhost:27017"
 	}
-	
+
 	return Config{
 		MongoDB: struct {
 			URI      string `json:"uri"`

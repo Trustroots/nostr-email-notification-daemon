@@ -73,7 +73,8 @@
                         <tr>
                             <td align="center" valign="middle">
                                 {{if .HeaderURL}}<a href="{{.HeaderURL}}" target="_blank" rel="noopener">{{end}}
-                                    <h2>TRUSTROOTS</h2>
+                                    <h2 style="color:#12b591; font-size:24px; margin:0; padding:10px 0;">🌍 TRUSTROOTS</h2>
+                                    <p style="margin:0; font-size:12px; color:#666;">A community of travelers</p>
                                 {{if .HeaderURL}}</a>{{end}}
                             </td>
                         </tr>
@@ -100,16 +101,11 @@
                     <table border="0" cellpadding="0" cellspacing="0" width="600" id="emailFooter">
                         <tr>
                             <td class="textContent" style="text-align:center; font-size:12px; color:#555555;">
-                                {{if .From}}
-                                    {{if .SupportURL}}<a href="{{.SupportURL}}">Contact us</a><br/><br/>{{end}}
-                                {{else}}
-                                    Remember, I'm just a little mail robot. Don't reply to this email directly.<br>
-                                    {{if .SupportURL}}<a href="{{.SupportURL}}">Contact us</a> if you want to talk to a human.<br/><br/>{{end}}
-                                {{end}}
+                                You can actually reply to this email directly, we will be happy to hear from you as we're still very early stage testing nostroots stuff.<br><br/>
                                 
                                 You are receiving this email because you have 
-                                {{if .ProfileURL}}<a href="{{.ProfileURL}}">{{end}}an active account{{if .ProfileURL}}</a>{{end}} 
-                                on Trustroots.
+                                <a href="https://trustroots.org/profile/{{.Username}}">an active account</a> 
+                                on Trustroots and added a Nostr public key (npub) to your profile.
                                 <br/><br/>
                                 
                                 {{if .FooterURL}}<a href="{{.FooterURL}}">{{end}}

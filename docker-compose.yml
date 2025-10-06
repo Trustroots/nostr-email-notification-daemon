@@ -1,0 +1,18 @@
+
+services:
+  nostremail:
+    build: .
+    container_name: nostremail-app
+    restart: unless-stopped
+    environment:
+      - MONGODB_URI=mongodb://host.docker.internal:27017/trustroots
+    volumes:
+      - ./config.json:/root/config.json:ro
+      - nostremail_data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["./nostremail", "--nostr-listen"]
+
+volumes:
+  nostremail_data:
+    driver: local

@@ -1,0 +1,23 @@
+{{.Title}}
+----------------------------------------------------------------------
+
+Hello {{.Username}},
+
+You have received a new Nostr mention:
+
+"{{.EventContent}}"
+
+From: {{.SenderNIP5}} ({{.SenderNpub}})
+Event ID: {{.EventID}}
+Created: {{.CreatedAt}}
+
+This mention was detected on the Trustroots Nostr relay network.
+
+View on Snort.social: https://snort.social/e/{{.EventID}}
+
+--
+Trustroots
+https://trustroots.org
+
+Remember, I'm just a little mail robot. Don't reply to this email directly.
+Contact us if you want to talk to a human: https://trustroots.org/support

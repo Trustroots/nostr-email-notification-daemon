@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -13,7 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/gorilla/websocket"
+	_ "github.com/mattn/go-sqlite3"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -33,9 +36,17 @@ type Config struct {
 		URI      string `json:"uri"`
 		Database string `json:"database"`
 	} `json:"mongodb"`
-	SenderNpub string   `json:"sender-npub"`
-	SenderNsec string   `json:"sender-nsec"`
-	Relays     []string `json:"relays"`
+	SenderNpub  string   `json:"sender-npub"`
+	SenderNsec  string   `json:"sender-nsec"`
+	SenderEmail string   `json:"sender-email"`
+	Relays      []string `json:"relays"`
+	SMTP        struct {
+		Host     string `json:"host"`
+		Port     int    `json:"port"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+		FromName string `json:"from_name"`
+	} `json:"smtp"`
 }
 
 // NostrEvent represents a nostr event
@@ -47,6 +58,11 @@ type NostrEvent struct {
 	Tags      [][]string `json:"tags"`
 	Content   string     `json:"content"`
 	Sig       string     `json:"sig"`
+}
+
+// NIP5Response represents the response from a NIP-5 verification endpoint
+type NIP5Response struct {
+	Names map[string]string `json:"names"`
 }
 
 // NostrMessage represents a nostr message
@@ -64,12 +80,18 @@ func main() {
 	testFlag := flag.Bool("test", false, "Send a test note")
 	recipientNpub := flag.String("send-to-npub", "", "Recipient npub for test send (required with --test)")
 	message := flag.String("msg", "", "Message content for test send (required with --test)")
+	skipNIP5Flag := flag.Bool("skip-nip5", false, "Skip NIP-5 verification for testing purposes")
 	flag.Parse()
 
 	// Load configuration
 	config, err := loadConfig("config.json")
 	if err != nil {
 		log.Fatal("Failed to load config:", err)
+	}
+	
+	// Override MongoDB URI with environment variable if set
+	if mongoURI := os.Getenv("MONGODB_URI"); mongoURI != "" {
+		config.MongoDB.URI = mongoURI
 	}
 
 	// Connect to MongoDB
@@ -82,6 +104,23 @@ func main() {
 			log.Fatal("Failed to disconnect from MongoDB:", err)
 		}
 	}()
+
+	// Initialize SQLite database for tracking processed notes
+	sqliteDB, err := initSQLiteDB()
+	if err != nil {
+		log.Fatal("Failed to initialize SQLite database:", err)
+	}
+	defer sqliteDB.Close()
+
+	// Initialize email service
+	emailService := NewEmailService(
+		config.SMTP.Host,
+		config.SMTP.Port,
+		config.SMTP.Username,
+		config.SMTP.Password,
+		config.SenderEmail,
+		config.SMTP.FromName,
+	)
 
 	// Get users from database
 	users, err := getUsersFromDB(client, config)
@@ -98,7 +137,7 @@ func main() {
 	}
 
 	if *nostrListenFlag {
-		err = listenToNostrRelays(validNpubs, config.Relays)
+		err = listenToNostrRelays(validNpubs, config.Relays, *skipNIP5Flag, client, config, sqliteDB, emailService)
 		if err != nil {
 			log.Fatal("Failed to listen to nostr relays:", err)
 		}
@@ -230,7 +269,7 @@ func displayUserList(validNpubs, invalidNpubs, emptyNpubs []User) {
 	fmt.Printf("Empty npubs: %d\n", len(emptyNpubs))
 }
 
-func listenToNostrRelays(validNpubs []User, relays []string) error {
+func listenToNostrRelays(validNpubs []User, relays []string, skipNIP5 bool, client *mongo.Client, config *Config, sqliteDB *sql.DB, emailService *EmailService) error {
 	fmt.Println("🔍 Listening to nostr relays for mentions...")
 	fmt.Printf("Connecting to %d relays: %v\n", len(relays), relays)
 
@@ -247,7 +286,7 @@ func listenToNostrRelays(validNpubs []User, relays []string) error {
 	// Connect to each relay
 	for _, relayURL := range relays {
 		go func(relay string) {
-			err := connectToRelay(relay, npubToUser)
+			err := connectToRelay(relay, npubToUser, skipNIP5, client, config, sqliteDB, emailService)
 			if err != nil {
 				fmt.Printf("❌ Error connecting to %s: %v\n", relay, err)
 			}
@@ -258,7 +297,7 @@ func listenToNostrRelays(validNpubs []User, relays []string) error {
 	select {}
 }
 
-func connectToRelay(relayURL string, npubToUser map[string]User) error {
+func connectToRelay(relayURL string, npubToUser map[string]User, skipNIP5 bool, client *mongo.Client, config *Config, sqliteDB *sql.DB, emailService *EmailService) error {
 
 	// Parse URL
 	u, err := url.Parse(relayURL)
@@ -278,13 +317,16 @@ func connectToRelay(relayURL string, npubToUser map[string]User) error {
 	// Create subscription for all npubs at once
 	subID := fmt.Sprintf("sub_%d", time.Now().Unix())
 
-	// Create subscription for recent notes to test connectivity
+	// Create subscription for notes mentioning our users
+	npubs := getNpubsFromUsers(npubToUser)
+	fmt.Printf("🔍 Subscribing to mentions of %d npubs: %v\n", len(npubs), npubs[:min(3, len(npubs))])
+
 	subscribeMsg := []interface{}{
 		"REQ",
 		subID,
 		map[string]interface{}{
 			"kinds": []int{1},
-			"limit": 5,
+			"#p":    npubs,
 		},
 	}
 
@@ -346,6 +388,11 @@ func connectToRelay(relayURL string, npubToUser map[string]User) error {
 					continue
 				}
 
+				// Debug: show all message types
+				if msgType != "EVENT" {
+					fmt.Printf("📨 Received %s message\n", msgType)
+				}
+
 				// Check if it's an event message
 				if msgType == "EVENT" && len(messages) >= 3 {
 					var event NostrEvent
@@ -353,10 +400,66 @@ func connectToRelay(relayURL string, npubToUser map[string]User) error {
 						continue
 					}
 
+					fmt.Printf("📝 Received event: %s (kind %d)\n", event.ID, event.Kind)
+
+					// Check if this note has already been processed
+					alreadyProcessed, err := isNoteProcessed(sqliteDB, event.ID)
+					if err != nil {
+						fmt.Printf("⚠️  Error checking if note is processed: %v\n", err)
+						continue
+					}
+
+					if alreadyProcessed {
+						fmt.Printf("⏭️  Skipping already processed note: %s\n", event.ID)
+						continue
+					}
+
 					// Check if this event mentions any of our users
 					for _, user := range npubToUser {
 						if mentionsUser(event, user) {
-							displayMention(event, user, relayURL)
+							var isVerified bool
+							var senderNIP5 string
+							var err error
+
+							// Verify NIP-5 by looking up in MongoDB
+							isVerified, senderNIP5, err = verifyNIP5FromDB(event.PubKey, client)
+							if err != nil {
+								npub := hexToNpub(event.PubKey)
+								fmt.Printf("❌ NIP-5 verification failed for %s: %v\n", npub, err)
+								if !skipNIP5 {
+									continue
+								}
+								senderNIP5 = "unverified@trustroots.org"
+							}
+
+							if !isVerified {
+								npub := hexToNpub(event.PubKey)
+								if !skipNIP5 {
+									fmt.Printf("⚠️  Skipping mention from unverified user: %s (NIP-5 not found)\n", npub)
+									continue
+								}
+								senderNIP5 = "unverified@trustroots.org"
+								fmt.Printf("⚠️  Skipping NIP-5 verification (--skip-nip5 flag), using: %s\n", senderNIP5)
+							} else {
+								npub := hexToNpub(event.PubKey)
+								fmt.Printf("✅ NIP-5 verified: %s -> %s\n", npub, senderNIP5)
+							}
+
+							// Send email notification
+							err = emailService.ProcessNostrMention(event, user, senderNIP5)
+							if err != nil {
+								fmt.Printf("❌ Failed to process email for %s: %v\n", user.Username, err)
+							} else {
+								fmt.Printf("📧 Email queued for %s (%s)\n", user.Username, user.Email)
+							}
+
+							// Mark this note as processed
+							err = markNoteProcessed(sqliteDB, event.ID, relayURL, user.Email)
+							if err != nil {
+								fmt.Printf("⚠️  Error marking note as processed: %v\n", err)
+							} else {
+								fmt.Printf("✅ Marked note %s as processed\n", event.ID)
+							}
 						}
 					}
 				}
@@ -391,6 +494,13 @@ func displayMention(event NostrEvent, user User, relayURL string) {
 	}
 
 	fmt.Printf("   " + strings.Repeat("-", 50) + "\n")
+}
+
+func displayEmailNotification(event NostrEvent, user User, relayURL string, emailContent string) {
+	createdTime := time.Unix(event.CreatedAt, 0)
+	npub := hexToNpub(event.PubKey)
+	fmt.Printf("📧 %s → %s: %s\n", npub, user.Username, event.Content)
+	fmt.Printf("   Event: %s | %s\n", event.ID, createdTime.Format("15:04:05"))
 }
 
 // mentionsNpub checks if the event mentions the specified npub
@@ -449,6 +559,189 @@ func mentionsUser(event NostrEvent, user User) bool {
 	}
 
 	return false
+}
+
+// hexToNpub converts a hex pubkey to proper npub format using bech32
+func hexToNpub(hexPubkey string) string {
+	// Decode hex to bytes
+	pubkeyBytes, err := hex.DecodeString(hexPubkey)
+	if err != nil {
+		// If hex decoding fails, return a simplified version
+		return "npub1" + hexPubkey[:min(32, len(hexPubkey))] + "..."
+	}
+
+	// Convert to 5-bit groups for bech32
+	converted, err := bech32.ConvertBits(pubkeyBytes, 8, 5, true)
+	if err != nil {
+		// If conversion fails, return a simplified version
+		return "npub1" + hexPubkey[:min(32, len(hexPubkey))] + "..."
+	}
+
+	// Encode using bech32
+	npub, err := bech32.Encode("npub", converted)
+	if err != nil {
+		// If encoding fails, return a simplified version
+		return "npub1" + hexPubkey[:min(32, len(hexPubkey))] + "..."
+	}
+
+	return npub
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// verifyNIP5FromDB checks if a pubkey has a valid NIP-5 identifier by looking up in MongoDB
+func verifyNIP5FromDB(pubkey string, client *mongo.Client) (bool, string, error) {
+	// Convert hex pubkey to npub for database lookup
+	npub := hexToNpub(pubkey)
+
+	collection := client.Database("trustroots").Collection("users")
+
+	var user User
+	err := collection.FindOne(context.TODO(), bson.M{"nostrNpub": npub}).Decode(&user)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return false, "", nil
+		}
+		return false, "", fmt.Errorf("failed to query user: %v", err)
+	}
+
+	// User found, create NIP-5 identifier
+	nip5 := fmt.Sprintf("%s@trustroots.org", user.Username)
+	return true, nip5, nil
+}
+
+// getConfig returns a basic config for MongoDB connection
+func getConfig() Config {
+	mongoURI := os.Getenv("MONGODB_URI")
+	if mongoURI == "" {
+		mongoURI = "mongodb://localhost:27017"
+	}
+	
+	return Config{
+		MongoDB: struct {
+			URI      string `json:"uri"`
+			Database string `json:"database"`
+		}{
+			URI:      mongoURI,
+			Database: "trustroots",
+		},
+	}
+}
+
+// initSQLiteDB initializes the SQLite database for tracking processed notes
+func initSQLiteDB() (*sql.DB, error) {
+	db, err := sql.Open("sqlite3", "./processed_notes.db")
+	if err != nil {
+		return nil, fmt.Errorf("failed to open SQLite database: %v", err)
+	}
+
+	// Create table if it doesn't exist
+	createTableSQL := `
+	CREATE TABLE IF NOT EXISTS processed_notes (
+		event_id TEXT PRIMARY KEY,
+		processed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		relay_url TEXT,
+		user_email TEXT
+	);`
+
+	_, err = db.Exec(createTableSQL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create table: %v", err)
+	}
+
+	return db, nil
+}
+
+// isNoteProcessed checks if a note has already been processed
+func isNoteProcessed(db *sql.DB, eventID string) (bool, error) {
+	var count int
+	err := db.QueryRow("SELECT COUNT(*) FROM processed_notes WHERE event_id = ?", eventID).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if note is processed: %v", err)
+	}
+	return count > 0, nil
+}
+
+// markNoteProcessed marks a note as processed
+func markNoteProcessed(db *sql.DB, eventID, relayURL, userEmail string) error {
+	_, err := db.Exec("INSERT OR IGNORE INTO processed_notes (event_id, relay_url, user_email) VALUES (?, ?, ?)",
+		eventID, relayURL, userEmail)
+	if err != nil {
+		return fmt.Errorf("failed to mark note as processed: %v", err)
+	}
+	return nil
+}
+
+// getNpubsFromUsers extracts all npubs from the user map
+func getNpubsFromUsers(npubToUser map[string]User) []string {
+	var npubs []string
+	for npub := range npubToUser {
+		npubs = append(npubs, npub)
+	}
+	return npubs
+}
+
+// formatEmail creates a properly formatted email for the mention
+func formatEmail(event NostrEvent, mentionedUser User, senderNIP5 string, config *Config) string {
+	// Convert timestamp to readable format
+	createdTime := time.Unix(event.CreatedAt, 0)
+	formattedTime := createdTime.Format("2006-01-02 15:04:05 UTC")
+
+	// Use sender email from config, fallback to NIP-5, then default
+	senderEmail := config.SenderEmail
+	if senderEmail == "" {
+		senderEmail = senderNIP5
+		if senderEmail == "" {
+			senderEmail = "noreply@trustroots.org"
+		}
+	}
+
+	// Create email subject
+	subject := fmt.Sprintf("Nostr Mention from %s", senderEmail)
+
+	// Create email body
+	emailBody := fmt.Sprintf(`From: %s
+To: %s (%s)
+Subject: %s
+Date: %s
+Message-ID: nostr-%s@trustroots.org
+
+Hello %s,
+
+You have received a new Nostr mention:
+
+Content: %s
+
+Event Details:
+- Event ID: %s
+- Created: %s
+- Sender: %s
+
+This mention was detected on the Trustroots Nostr relay network.
+
+Best regards,
+Trustroots Nostr Notification System
+`,
+		senderEmail,
+		mentionedUser.Email,
+		mentionedUser.Username,
+		subject,
+		formattedTime,
+		event.ID,
+		mentionedUser.Username,
+		event.Content,
+		event.ID,
+		formattedTime,
+		senderEmail,
+	)
+
+	return emailBody
 }
 
 func displaySummary(users []User, validNpubs, invalidNpubs, emptyNpubs []User) {

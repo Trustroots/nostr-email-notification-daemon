@@ -7,3 +7,10 @@
 
 # Config with sensitive data
 config.json
+.env
+
+# SQLite database
+processed_notes.db
+
+# Docker volumes
+docker-data/

@@ -1,0 +1,128 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+    <meta name="viewport" content="width=device-width"/>
+    <title>{{.Title}}</title>
+    
+    <style type="text/css">
+        /* Reset styles */
+        body, #bodyTable, #bodyCell, #footerTable, #footerCell, #headerTable, #headerCell {
+            margin:0; padding:0; width:100% !important;
+        }
+        
+        /* Framework styles */
+        .flexibleContainerCell { padding:20px; }
+        #emailBody { 
+            background-color:#FFFFFF; 
+            border:1px solid #DDDDDD; 
+            border-radius:4px;
+            width:600px;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            color:#202020; 
+            font-family:Helvetica; 
+            font-size:20px; 
+            line-height:125%;
+        }
+        .textContent {
+            color:#404040; 
+            font-family:Helvetica; 
+            font-size:16px; 
+            line-height:125%;
+        }
+        .textContent a {
+            color:#12b591; 
+            text-decoration:underline;
+        }
+        
+        /* Button styles */
+        .emailButton {
+            background-color:#12b591; 
+            border-radius:4px;
+        }
+        .buttonContent {
+            color:#FFFFFF; 
+            font-family:Helvetica; 
+            font-size:18px; 
+            font-weight:bold; 
+            padding:15px; 
+            text-align:center;
+        }
+        .buttonContent a {
+            color:#FFFFFF; 
+            text-decoration:none;
+        }
+        
+        /* Mobile styles */
+        @media only screen and (max-width: 480px) {
+            table[id="emailBody"] { width:100% !important; }
+            table[class="emailButton"] { width:100% !important; }
+        }
+    </style>
+</head>
+<body>
+    <center>
+        <!-- Header -->
+        <table border="0" cellpadding="0" cellspacing="0" width="100%" id="headerTable">
+            <tr>
+                <td align="center" valign="top" id="headerCell">
+                    <table border="0" cellpadding="0" cellspacing="0" width="600" id="emailHeader">
+                        <tr>
+                            <td align="center" valign="middle">
+                                {{if .HeaderURL}}<a href="{{.HeaderURL}}" target="_blank" rel="noopener">{{end}}
+                                    <h2>TRUSTROOTS</h2>
+                                {{if .HeaderURL}}</a>{{end}}
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+        
+        <!-- Content -->
+        <table border="0" cellpadding="0" cellspacing="0" width="100%" id="bodyTable">
+            <tr>
+                <td align="center" valign="top" id="bodyCell">
+                    <table border="0" cellpadding="0" cellspacing="0" width="600" id="emailBody">
+                        {{template "content" .}}
+                    </table>
+                </td>
+            </tr>
+        </table>
+        
+        <!-- Footer -->
+        <table border="0" cellpadding="0" cellspacing="0" width="100%" id="footerTable">
+            <tr>
+                <td align="center" valign="top" id="footerCell">
+                    <table border="0" cellpadding="0" cellspacing="0" width="600" id="emailFooter">
+                        <tr>
+                            <td class="textContent" style="text-align:center; font-size:12px; color:#555555;">
+                                {{if .From}}
+                                    {{if .SupportURL}}<a href="{{.SupportURL}}">Contact us</a><br/><br/>{{end}}
+                                {{else}}
+                                    Remember, I'm just a little mail robot. Don't reply to this email directly.<br>
+                                    {{if .SupportURL}}<a href="{{.SupportURL}}">Contact us</a> if you want to talk to a human.<br/><br/>{{end}}
+                                {{end}}
+                                
+                                You are receiving this email because you have 
+                                {{if .ProfileURL}}<a href="{{.ProfileURL}}">{{end}}an active account{{if .ProfileURL}}</a>{{end}} 
+                                on Trustroots.
+                                <br/><br/>
+                                
+                                {{if .FooterURL}}<a href="{{.FooterURL}}">{{end}}
+                                    Trustroots
+                                {{if .FooterURL}}</a>{{end}}
+                                <br>
+                                A community of travelers
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </center>
+</body>
+</html>

@@ -9,6 +9,7 @@ services:
     volumes:
       - ./config.json:/root/config.json:ro
       - nostremail_data:/data
+      - ./processed_notes.db:/root/processed_notes.db
     extra_hosts:
       - "host.docker.internal:host-gateway"
     command: ["./nostremail", "--nostr-listen"]

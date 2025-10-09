@@ -1,0 +1,35 @@
+{{.Title}}
+
+Hello {{.Username}},
+
+🔒 You have received a new encrypted direct message via Nostr:
+
+From: {{.SenderNIP5}} ({{.SenderNpub}})
+Date: {{.CreatedAt}}
+Event ID: {{.EventID}}
+Message Type: NIP-4 Encrypted Direct Message
+
+🔐 ENCRYPTED MESSAGE RECEIVED
+The message content is encrypted and cannot be displayed in this email for security reasons. You'll need to use your Nostr client to decrypt and read the message.
+
+HOW TO READ THIS MESSAGE:
+1. Open your Nostr client (like Snort, Damus, or Amethyst)
+2. Make sure you're logged in with the account that received this message
+3. Look for the direct message from {{.SenderNIP5}}
+4. Your client will automatically decrypt the message for you
+
+ABOUT NIP-4 DIRECT MESSAGES:
+NIP-4 messages are encrypted end-to-end, meaning only you and the sender can read the content. This notification system cannot decrypt the message for security reasons - you'll need to use your Nostr client to read it.
+
+TO REPLY:
+Use your Nostr client to send a direct message back to {{.SenderNIP5}}.
+
+View this message online: {{.Content.buttonURL}}
+View your profile: {{.ProfileURL}}
+
+Best regards,
+Trustroots Nostr Notification System
+
+---
+Support: {{.SupportURL}}
+Trustroots: {{.FooterURL}}

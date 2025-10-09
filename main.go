@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -94,10 +95,11 @@ func main() {
 		config.MongoDB.URI = mongoURI
 	}
 
-	// Connect to MongoDB
+	// Check MongoDB connectivity first before any other operations
+	fmt.Println("🔍 Checking MongoDB connectivity...")
 	client, err := connectToMongoDB(config)
 	if err != nil {
-		log.Fatal("Failed to connect to MongoDB:", err)
+		log.Fatal("❌ MongoDB is not reachable:", err)
 	}
 	defer func() {
 		if err = client.Disconnect(context.TODO()); err != nil {
@@ -181,15 +183,16 @@ func connectToMongoDB(config *Config) (*mongo.Client, error) {
 	clientOptions := options.Client().ApplyURI(config.MongoDB.URI)
 	client, err := mongo.Connect(context.TODO(), clientOptions)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create MongoDB client: %v", err)
 	}
 
 	// Ping the database to verify connection
 	err = client.Ping(context.TODO(), nil)
 	if err != nil {
-		return nil, err
+		client.Disconnect(context.TODO())
+		return nil, fmt.Errorf("failed to ping MongoDB at %s: %v", config.MongoDB.URI, err)
 	}
-	fmt.Printf("Successfully connected to MongoDB at %s!\n", config.MongoDB.URI)
+	fmt.Printf("✅ Successfully connected to MongoDB at %s!\n", config.MongoDB.URI)
 	return client, nil
 }
 
@@ -325,8 +328,9 @@ func connectToRelay(relayURL string, npubToUser map[string]User, skipNIP5 bool, 
 		"REQ",
 		subID,
 		map[string]interface{}{
-			"kinds": []int{1},
+			"kinds": []int{1, 4, 14, 15}, // 1=text notes, 4=NIP-4 DMs, 14=NIP-17 gift wrap, 15=NIP-17 sealed DM
 			"#p":    npubs,
+			"since": int(time.Now().Unix()),
 		},
 	}
 
@@ -349,119 +353,80 @@ func connectToRelay(relayURL string, npubToUser map[string]User, skipNIP5 bool, 
 			}
 		}()
 
-		timeout := time.After(30 * time.Second)
-
 		for {
-			select {
-			case <-timeout:
-				// Close this subscription
-				closeMsg := []interface{}{"CLOSE", subID}
-				closeBytes, _ := json.Marshal(closeMsg)
-				conn.WriteMessage(websocket.TextMessage, closeBytes)
-				return
-			default:
-				// Read message with timeout
-				conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-				_, msgBytes, err := conn.ReadMessage()
+			// Read message with timeout
+			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			_, msgBytes, err := conn.ReadMessage()
 
-				if err != nil {
-					// Check if it's a timeout or connection error
-					if websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-						return
-					}
-					// For other errors, return to avoid panic
+			if err != nil {
+				// Check if it's a timeout or connection error
+				if websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 					return
 				}
+				// For other errors, return to avoid panic
+				return
+			}
 
-				// Parse message
-				var messages []json.RawMessage
-				if err := json.Unmarshal(msgBytes, &messages); err != nil {
+			// Parse message
+			var messages []json.RawMessage
+			if err := json.Unmarshal(msgBytes, &messages); err != nil {
+				continue
+			}
+
+			if len(messages) < 2 {
+				continue
+			}
+
+			var msgType string
+			if err := json.Unmarshal(messages[0], &msgType); err != nil {
+				continue
+			}
+
+			// Debug: show all message types
+			if msgType != "EVENT" {
+				fmt.Printf("📨 Received %s message\n", msgType)
+			}
+
+			// Check if it's an event message
+			if msgType == "EVENT" && len(messages) >= 3 {
+				var event NostrEvent
+				if err := json.Unmarshal(messages[2], &event); err != nil {
 					continue
 				}
 
-				if len(messages) < 2 {
+				fmt.Printf("📝 Received event: %s (kind %v)\n", event.ID, event.Kind)
+
+				// Check if this note has already been processed
+				alreadyProcessed, err := isNoteProcessed(sqliteDB, event.ID)
+				if err != nil {
+					fmt.Printf("⚠️  Error checking if note is processed: %v\n", err)
 					continue
 				}
 
-				var msgType string
-				if err := json.Unmarshal(messages[0], &msgType); err != nil {
+				if alreadyProcessed {
+					fmt.Printf("⏭️  Skipping already processed note: %s\n", event.ID)
 					continue
 				}
 
-				// Debug: show all message types
-				if msgType != "EVENT" {
-					fmt.Printf("📨 Received %s message\n", msgType)
-				}
-
-				// Check if it's an event message
-				if msgType == "EVENT" && len(messages) >= 3 {
-					var event NostrEvent
-					if err := json.Unmarshal(messages[2], &event); err != nil {
-						continue
-					}
-
-					fmt.Printf("📝 Received event: %s (kind %d)\n", event.ID, event.Kind)
-
-					// Check if this note has already been processed
-					alreadyProcessed, err := isNoteProcessed(sqliteDB, event.ID)
-					if err != nil {
-						fmt.Printf("⚠️  Error checking if note is processed: %v\n", err)
-						continue
-					}
-
-					if alreadyProcessed {
-						fmt.Printf("⏭️  Skipping already processed note: %s\n", event.ID)
-						continue
-					}
-
-					// Check if this event mentions any of our users
+				// Handle different event kinds
+				switch event.Kind {
+				case 1: // Text notes (mentions)
 					for _, user := range npubToUser {
 						if mentionsUser(event, user) {
-							var isVerified bool
-							var senderNIP5 string
-							var err error
-
-							// Verify NIP-5 by looking up in MongoDB
-							isVerified, senderNIP5, err = verifyNIP5FromDB(event.PubKey, client)
-							if err != nil {
-								npub := hexToNpub(event.PubKey)
-								fmt.Printf("❌ NIP-5 verification failed for %s: %v\n", npub, err)
-								if !skipNIP5 {
-									continue
-								}
-								senderNIP5 = "unverified@trustroots.org"
-							}
-
-							if !isVerified {
-								npub := hexToNpub(event.PubKey)
-								if !skipNIP5 {
-									fmt.Printf("⚠️  Skipping mention from unverified user: %s (NIP-5 not found)\n", npub)
-									continue
-								}
-								senderNIP5 = "unverified@trustroots.org"
-								fmt.Printf("⚠️  Skipping NIP-5 verification (--skip-nip5 flag), using: %s\n", senderNIP5)
-							} else {
-								npub := hexToNpub(event.PubKey)
-								fmt.Printf("✅ NIP-5 verified: %s -> %s\n", npub, senderNIP5)
-							}
-
-							// Send email notification
-							err = emailService.ProcessNostrMention(event, user, senderNIP5)
-							if err != nil {
-								fmt.Printf("❌ Failed to process email for %s: %v\n", user.Username, err)
-							} else {
-								fmt.Printf("📧 Email queued for %s (%s)\n", user.Username, user.Email)
-							}
-
-							// Mark this note as processed
-							err = markNoteProcessed(sqliteDB, event.ID, relayURL, user.Email)
-							if err != nil {
-								fmt.Printf("⚠️  Error marking note as processed: %v\n", err)
-							} else {
-								fmt.Printf("✅ Marked note %s as processed\n", event.ID)
-							}
+							processMention(event, user, skipNIP5, client, config, sqliteDB, emailService, relayURL)
 						}
 					}
+				case 4: // NIP-4 Encrypted Direct Messages
+					for _, user := range npubToUser {
+						if isDirectMessageForUser(event, user) {
+							processDirectMessage(event, user, skipNIP5, client, config, sqliteDB, emailService, relayURL)
+						}
+					}
+				case 14, 15: // NIP-17 Private Direct Messages
+					// Note: These require the recipient's private key to decrypt
+					// For now, we'll just log that we received them
+					fmt.Printf("📨 Received NIP-17 message (kind %v) - requires recipient's private key to decrypt\n", event.Kind)
+					// TODO: Implement NIP-17 support if users provide private keys
 				}
 			}
 		}
@@ -493,7 +458,7 @@ func displayMention(event NostrEvent, user User, relayURL string) {
 		fmt.Printf("   📌 Mentioned in content\n")
 	}
 
-	fmt.Printf("   " + strings.Repeat("-", 50) + "\n")
+	fmt.Printf("   %s\n", strings.Repeat("-", 50))
 }
 
 func displayEmailNotification(event NostrEvent, user User, relayURL string, emailContent string) {
@@ -559,6 +524,131 @@ func mentionsUser(event NostrEvent, user User) bool {
 	}
 
 	return false
+}
+
+// isDirectMessageForUser checks if a kind 4 event is a direct message for the user
+func isDirectMessageForUser(event NostrEvent, user User) bool {
+	// For NIP-4, check if the user's npub is in the p tags
+	for _, tag := range event.Tags {
+		if len(tag) >= 2 && tag[0] == "p" && tag[1] == user.NostrNpub {
+			return true
+		}
+	}
+	return false
+}
+
+// processMention handles processing of text note mentions
+func processMention(event NostrEvent, user User, skipNIP5 bool, client *mongo.Client, config *Config, sqliteDB *sql.DB, emailService *EmailService, relayURL string) {
+	var isVerified bool
+	var senderNIP5 string
+	var err error
+
+	// Verify NIP-5 by looking up in MongoDB
+	isVerified, senderNIP5, err = verifyNIP5FromDB(event.PubKey, client)
+	if err != nil {
+		npub := hexToNpub(event.PubKey)
+		fmt.Printf("❌ NIP-5 verification failed for %s: %v\n", npub, err)
+		if !skipNIP5 {
+			return
+		}
+		senderNIP5 = "unverified@trustroots.org"
+	}
+
+	if !isVerified {
+		npub := hexToNpub(event.PubKey)
+		if !skipNIP5 {
+			fmt.Printf("⚠️  Skipping mention from unverified user: %s (NIP-5 not found)\n", npub)
+			return
+		}
+		senderNIP5 = "unverified@trustroots.org"
+		fmt.Printf("⚠️  Skipping NIP-5 verification (--skip-nip5 flag), using: %s\n", senderNIP5)
+	} else {
+		npub := hexToNpub(event.PubKey)
+		fmt.Printf("✅ NIP-5 verified: %s -> %s\n", npub, senderNIP5)
+	}
+
+	// Send email notification
+	err = emailService.ProcessNostrMention(event, user, senderNIP5)
+	if err != nil {
+		fmt.Printf("❌ Failed to process email for %s: %v\n", user.Username, err)
+	} else {
+		fmt.Printf("📧 Email queued for %s (%s)\n", user.Username, user.Email)
+	}
+
+	// Mark this note as processed
+	err = markNoteProcessed(sqliteDB, event.ID, relayURL, user.Email)
+	if err != nil {
+		fmt.Printf("⚠️  Error marking note as processed: %v\n", err)
+	} else {
+		fmt.Printf("✅ Marked note %s as processed\n", event.ID)
+	}
+}
+
+// processDirectMessage handles processing of NIP-4 encrypted direct messages
+func processDirectMessage(event NostrEvent, user User, skipNIP5 bool, client *mongo.Client, config *Config, sqliteDB *sql.DB, emailService *EmailService, relayURL string) {
+	fmt.Printf("📨 Processing NIP-4 direct message for %s\n", user.Username)
+
+	// Validate that this looks like a NIP-4 message
+	if !validateNIP4Message(event) {
+		fmt.Printf("⚠️  Event doesn't appear to be NIP-4 formatted, skipping\n")
+		return
+	}
+
+	// Verify sender NIP-5
+	var isVerified bool
+	var senderNIP5 string
+	var err error
+
+	isVerified, senderNIP5, err = verifyNIP5FromDB(event.PubKey, client)
+	if err != nil {
+		npub := hexToNpub(event.PubKey)
+		fmt.Printf("❌ NIP-5 verification failed for %s: %v\n", npub, err)
+		if !skipNIP5 {
+			return
+		}
+		senderNIP5 = "unverified@trustroots.org"
+	}
+
+	if !isVerified {
+		npub := hexToNpub(event.PubKey)
+		if !skipNIP5 {
+			fmt.Printf("⚠️  Skipping DM from unverified user: %s (NIP-5 not found)\n", npub)
+			return
+		}
+		senderNIP5 = "unverified@trustroots.org"
+		fmt.Printf("⚠️  Skipping NIP-5 verification (--skip-nip5 flag), using: %s\n", senderNIP5)
+	} else {
+		npub := hexToNpub(event.PubKey)
+		fmt.Printf("✅ NIP-5 verified: %s -> %s\n", npub, senderNIP5)
+	}
+
+	// Create a notification event with placeholder content (since we can't decrypt)
+	notificationEvent := event
+	notificationEvent.Content = "[Encrypted Direct Message - Content not available]"
+
+	// Send email notification
+	err = emailService.ProcessNostrDirectMessage(notificationEvent, user, senderNIP5)
+	if err != nil {
+		fmt.Printf("❌ Failed to process DM email for %s: %v\n", user.Username, err)
+	} else {
+		fmt.Printf("📧 DM notification queued for %s (%s)\n", user.Username, user.Email)
+	}
+
+	// Mark this note as processed
+	err = markNoteProcessed(sqliteDB, event.ID, relayURL, user.Email)
+	if err != nil {
+		fmt.Printf("⚠️  Error marking DM as processed: %v\n", err)
+	} else {
+		fmt.Printf("✅ Marked DM %s as processed\n", event.ID)
+	}
+}
+
+// validateNIP4Message validates that a message appears to be NIP-4 formatted
+func validateNIP4Message(event NostrEvent) bool {
+	// NIP-4 format: base64(encrypted_content)
+	// We can validate that the content looks like base64 encoded data
+	_, err := base64.StdEncoding.DecodeString(event.Content)
+	return err == nil
 }
 
 // hexToNpub converts a hex pubkey to proper npub format using bech32
@@ -912,7 +1002,7 @@ func signNostrEvent(event *NostrEvent, nsec string) (*NostrEvent, error) {
 }
 
 func sendToRelays(event *NostrEvent, relays []string) error {
-	fmt.Printf("📡 Sending event to %d relays...\n", len(relays))
+	fmt.Printf("📡 Sending event to %v relays...\n", len(relays))
 
 	successCount := 0
 	errorCount := 0
@@ -928,7 +1018,7 @@ func sendToRelays(event *NostrEvent, relays []string) error {
 		}
 	}
 
-	fmt.Printf("📊 Relay sending complete: %d success, %d failed\n", successCount, errorCount)
+	fmt.Printf("📊 Relay sending complete: %v success, %v failed\n", successCount, errorCount)
 
 	if successCount == 0 {
 		return fmt.Errorf("failed to send to any relay")

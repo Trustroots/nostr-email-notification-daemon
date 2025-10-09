@@ -1,0 +1,75 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<div class="container">
+    <h1>{{.Title}}</h1>
+    
+    <div class="message-card encrypted-message">
+        <div class="message-header">
+            <h2>🔒 Encrypted Direct Message from {{.SenderNIP5}}</h2>
+            <p class="timestamp">{{.CreatedAt}}</p>
+        </div>
+        
+        <div class="message-content">
+            <div class="encrypted-notice">
+                <p><strong>🔐 Encrypted Message Received</strong></p>
+                <p>You have received a private, encrypted direct message. The content is encrypted and can only be decrypted by you using your Nostr client.</p>
+            </div>
+        </div>
+        
+        <div class="message-footer">
+            <p><strong>Sender:</strong> {{.SenderNIP5}} ({{.SenderNpub}})</p>
+            <p><strong>Event ID:</strong> <code>{{.EventID}}</code></p>
+            <p><strong>Message Type:</strong> NIP-4 Encrypted Direct Message</p>
+        </div>
+    </div>
+    
+    <div class="action-buttons">
+        <a href="{{.Content.buttonURL}}" class="btn btn-primary">{{.Content.buttonText}}</a>
+        <a href="{{.ProfileURL}}" class="btn btn-secondary">View Profile</a>
+    </div>
+    
+    <div class="info-box">
+        <h3>How to Read This Message</h3>
+        <ol>
+            <li>Open your Nostr client (like Snort, Damus, or Amethyst)</li>
+            <li>Make sure you're logged in with the account that received this message</li>
+            <li>Look for the direct message from {{.SenderNIP5}}</li>
+            <li>Your client will automatically decrypt the message for you</li>
+        </ol>
+        
+        <h3>About NIP-4 Direct Messages</h3>
+        <p>NIP-4 messages are encrypted end-to-end, meaning only you and the sender can read the content. This notification system cannot decrypt the message for security reasons - you'll need to use your Nostr client to read it.</p>
+        
+        <p><strong>To reply:</strong> Use your Nostr client to send a direct message back to {{.SenderNIP5}}.</p>
+    </div>
+</div>
+
+<style>
+.encrypted-message {
+    border-left: 4px solid #ff6b35;
+    background-color: #fff8f5;
+}
+
+.encrypted-notice {
+    background-color: #f0f8ff;
+    border: 1px solid #4a90e2;
+    border-radius: 8px;
+    padding: 16px;
+    margin: 16px 0;
+}
+
+.encrypted-notice p {
+    margin: 8px 0;
+}
+
+.info-box ol {
+    margin: 12px 0;
+    padding-left: 20px;
+}
+
+.info-box li {
+    margin: 8px 0;
+}
+</style>
+{{end}}

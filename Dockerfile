@@ -33,8 +33,8 @@ COPY --from=builder /app/nostremail .
 COPY --from=builder /app/config.json.example .
 COPY --from=builder /app/templates/ ./templates/
 
-# Create directory for SQLite database
-RUN mkdir -p /data
+# Create directory for SQLite database and ensure processed_notes.db exists
+RUN mkdir -p /data && touch /root/processed_notes.db
 
 # Expose port (if needed for health checks)
 EXPOSE 8080

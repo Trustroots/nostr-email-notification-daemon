@@ -14,38 +14,38 @@ import (
 // EmailTemplateData represents the data structure for email templates
 type EmailTemplateData struct {
 	// User data
-	Name        string
-	FirstName   string
-	Email       string
-	Username    string
-	
+	Name      string
+	FirstName string
+	Email     string
+	Username  string
+
 	// URLs
-	HeaderURL        string
-	FooterURL        string
-	SupportURL       string
-	ProfileURL       string
-	
+	HeaderURL  string
+	FooterURL  string
+	SupportURL string
+	ProfileURL string
+
 	// Email content
-	Subject          string
-	Title            string
-	MailTitle        string
-	
+	Subject   string
+	Title     string
+	MailTitle string
+
 	// Sender info
-	From             EmailSender
-	
+	From EmailSender
+
 	// Campaign tracking
-	UTMCampaign      string
+	UTMCampaign       string
 	SparkpostCampaign string
-	
+
 	// Custom content
-	Content          map[string]interface{}
-	
+	Content map[string]interface{}
+
 	// Nostr specific fields
-	EventContent     string
-	EventID          string
-	CreatedAt        string
-	SenderNIP5       string
-	SenderNpub       string
+	EventContent string
+	EventID      string
+	CreatedAt    string
+	SenderNIP5   string
+	SenderNpub   string
 }
 
 // EmailSender represents sender information
@@ -56,12 +56,12 @@ type EmailSender struct {
 
 // EmailService handles email composition and sending
 type EmailService struct {
-	SMTPHost     string
-	SMTPPort     int
-	SMTPUsername string
-	SMTPPassword string
-	FromEmail    string
-	FromName     string
+	SMTPHost      string
+	SMTPPort      int
+	SMTPUsername  string
+	SMTPPassword  string
+	FromEmail     string
+	FromName      string
 	htmlTemplates *template.Template
 	textTemplates *template.Template
 }
@@ -89,21 +89,21 @@ func NewEmailService(smtpHost string, smtpPort int, smtpUsername, smtpPassword, 
 		log.Printf("Warning: Failed to load HTML templates: %v", err)
 		htmlTemplates = template.New("html")
 	}
-	
+
 	// Load text templates
 	textTemplates, err := template.ParseGlob("templates/text/*.txt")
 	if err != nil {
 		log.Printf("Warning: Failed to load text templates: %v", err)
 		textTemplates = template.New("text")
 	}
-	
+
 	return &EmailService{
-		SMTPHost:     smtpHost,
-		SMTPPort:     smtpPort,
-		SMTPUsername: smtpUsername,
-		SMTPPassword: smtpPassword,
-		FromEmail:    fromEmail,
-		FromName:     fromName,
+		SMTPHost:      smtpHost,
+		SMTPPort:      smtpPort,
+		SMTPUsername:  smtpUsername,
+		SMTPPassword:  smtpPassword,
+		FromEmail:     fromEmail,
+		FromName:      fromName,
 		htmlTemplates: htmlTemplates,
 		textTemplates: textTemplates,
 	}
@@ -128,9 +128,9 @@ func (es *EmailService) GenerateNostrMentionEmail(event NostrEvent, mentionedUse
 			Name:    "Trustroots Nostr",
 			Address: es.FromEmail,
 		},
-		SupportURL:  "https://trustroots.org/support",
-		FooterURL:   "https://trustroots.org",
-		ProfileURL:  "https://trustroots.org/profile",
+		SupportURL: "https://trustroots.org/support",
+		FooterURL:  "https://trustroots.org",
+		ProfileURL: "https://trustroots.org/profile",
 		Content: map[string]interface{}{
 			"buttonURL":  fmt.Sprintf("https://snort.social/e/%s", event.ID),
 			"buttonText": "View on Snort.social",
@@ -168,7 +168,7 @@ func (es *EmailService) renderHTMLTemplate(templateName string, data EmailTempla
 	if err != nil {
 		return "", fmt.Errorf("failed to create premailer: %v", err)
 	}
-	
+
 	html, err := prem.Transform()
 	if err != nil {
 		return "", fmt.Errorf("failed to transform HTML: %v", err)
@@ -236,4 +236,71 @@ func (es *EmailService) ProcessNostrMention(event NostrEvent, mentionedUser User
 
 	es.QueueEmailJob(job)
 	return nil
+}
+
+// ProcessNostrDirectMessage processes a Nostr direct message and sends an email
+func (es *EmailService) ProcessNostrDirectMessage(event NostrEvent, recipientUser User, senderNIP5 string) error {
+	// Generate email template for direct message
+	template, err := es.GenerateNostrDirectMessageEmail(event, recipientUser, senderNIP5)
+	if err != nil {
+		return fmt.Errorf("failed to generate DM email template: %v", err)
+	}
+
+	// Queue email job
+	job := EmailJob{
+		To:      recipientUser.Email,
+		Subject: template.Subject,
+		HTML:    template.HTMLContent,
+		Text:    template.TextContent,
+	}
+
+	es.QueueEmailJob(job)
+	return nil
+}
+
+// GenerateNostrDirectMessageEmail creates an email for a Nostr direct message
+func (es *EmailService) GenerateNostrDirectMessageEmail(event NostrEvent, recipientUser User, senderNIP5 string) (*EmailTemplate, error) {
+	// Create email data
+	data := EmailTemplateData{
+		Username:     recipientUser.Username,
+		Name:         recipientUser.Username,
+		FirstName:    recipientUser.Username,
+		Email:        recipientUser.Email,
+		SenderNIP5:   senderNIP5,
+		EventContent: event.Content,
+		EventID:      event.ID,
+		CreatedAt:    time.Unix(event.CreatedAt, 0).Format("2006-01-02 15:04:05 UTC"),
+		SenderNpub:   hexToNpub(event.PubKey),
+		Title:        "🔒 New Encrypted Direct Message",
+		Subject:      fmt.Sprintf("🔒 Encrypted DM from %s", senderNIP5),
+		From: EmailSender{
+			Name:    "Trustroots Nostr",
+			Address: es.FromEmail,
+		},
+		SupportURL: "https://trustroots.org/support",
+		FooterURL:  "https://trustroots.org",
+		ProfileURL: "https://trustroots.org/profile",
+		Content: map[string]interface{}{
+			"buttonURL":  fmt.Sprintf("https://snort.social/e/%s", event.ID),
+			"buttonText": "View on Snort.social",
+		},
+	}
+
+	// Generate HTML content
+	htmlContent, err := es.renderHTMLTemplate("nostr_direct_message", data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render HTML template: %v", err)
+	}
+
+	// Generate text content
+	textContent, err := es.renderTextTemplate("nostr_direct_message", data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render text template: %v", err)
+	}
+
+	return &EmailTemplate{
+		Subject:     data.Subject,
+		HTMLContent: htmlContent,
+		TextContent: textContent,
+	}, nil
 }

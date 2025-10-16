@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -63,10 +62,6 @@ func main() {
 	// Parse command line arguments
 	listUsersFlag := flag.Bool("list-users", false, "List all users in 3 categories")
 	nostrListenFlag := flag.Bool("nostr-listen", false, "Listen to nostr relays for direct messages to valid npubs")
-	testFlag := flag.Bool("test", false, "Send a test direct message")
-	recipientNpub := flag.String("send-to-npub", "", "Recipient npub for test DM (required with --test)")
-	message := flag.String("msg", "", "Message content for test DM (required with --test)")
-	skipNIP5Flag := flag.Bool("skip-nip5", false, "Skip NIP-5 verification for testing purposes")
 	flag.Parse()
 
 	// Load configuration from environment variables
@@ -119,23 +114,9 @@ func main() {
 	}
 
 	if *nostrListenFlag {
-		err = listenToNostrRelays(validNpubs, config.Relays, *skipNIP5Flag, client, config, sqliteDB, emailService)
+		err = listenToNostrRelays(validNpubs, config.Relays, client, config, sqliteDB, emailService)
 		if err != nil {
 			log.Fatal("Failed to listen to nostr relays:", err)
-		}
-		return
-	}
-
-	if *testFlag {
-		if *recipientNpub == "" {
-			log.Fatal("--send-to-npub is required when using --test")
-		}
-		if *message == "" {
-			log.Fatal("--msg is required when using --test")
-		}
-		err = sendTestNote(config.SenderNpub, config.SenderNsec, *recipientNpub, *message, config.Relays)
-		if err != nil {
-			log.Fatal("Failed to send test note:", err)
 		}
 		return
 	}
@@ -343,7 +324,7 @@ func displayUserList(validNpubs, invalidNpubs, emptyNpubs []User) {
 	fmt.Printf("Empty npubs: %d\n", len(emptyNpubs))
 }
 
-func listenToNostrRelays(validNpubs []User, relays []string, skipNIP5 bool, client *mongo.Client, config *Config, sqliteDB *sql.DB, emailService *EmailService) error {
+func listenToNostrRelays(validNpubs []User, relays []string, client *mongo.Client, config *Config, sqliteDB *sql.DB, emailService *EmailService) error {
 	fmt.Println("🔍 Listening to nostr relays for direct messages...")
 	fmt.Printf("Connecting to %d relays: %v\n", len(relays), relays)
 
@@ -382,14 +363,14 @@ func listenToNostrRelays(validNpubs []User, relays []string, skipNIP5 bool, clie
 
 	// Process events
 	for evt := range sub {
-		processEvent(evt, npubToUser, hexToUser, skipNIP5, client, config, sqliteDB, emailService)
+		processEvent(evt, npubToUser, hexToUser, client, config, sqliteDB, emailService)
 	}
 
 	return nil
 }
 
 // processEvent handles incoming nostr events
-func processEvent(evt nostr.RelayEvent, npubToUser map[string]User, hexToUser map[string]User, skipNIP5 bool, client *mongo.Client, config *Config, sqliteDB *sql.DB, emailService *EmailService) {
+func processEvent(evt nostr.RelayEvent, npubToUser map[string]User, hexToUser map[string]User, client *mongo.Client, config *Config, sqliteDB *sql.DB, emailService *EmailService) {
 	// Check if this is an event (not a notice or other message type)
 	if evt.Event == nil {
 		return
@@ -424,7 +405,7 @@ func processEvent(evt nostr.RelayEvent, npubToUser map[string]User, hexToUser ma
 		for _, user := range npubToUser {
 			if isDirectMessageForUser(event, user) {
 				fmt.Printf("✅ MATCH FOUND! DM for %s (%s)\n", user.Username, user.Email)
-				processDirectMessage(event, user, skipNIP5, client, config, sqliteDB, emailService)
+				processDirectMessage(event, user, client, config, sqliteDB, emailService)
 				matched = true
 			}
 		}
@@ -462,7 +443,7 @@ func isDirectMessageForUser(event *nostr.Event, user User) bool {
 }
 
 // processDirectMessage handles processing of NIP-4 encrypted direct messages
-func processDirectMessage(event *nostr.Event, user User, skipNIP5 bool, client *mongo.Client, config *Config, sqliteDB *sql.DB, emailService *EmailService) {
+func processDirectMessage(event *nostr.Event, user User, client *mongo.Client, config *Config, sqliteDB *sql.DB, emailService *EmailService) {
 	fmt.Printf("📨 Processing NIP-4 direct message for %s\n", user.Username)
 
 	// Skip NIP-4 content validation for now - we'll process all kind 4 events
@@ -479,22 +460,15 @@ func processDirectMessage(event *nostr.Event, user User, skipNIP5 bool, client *
 	isVerified, senderNIP5, err = verifyNIP5FromDB(event.PubKey, client)
 	if err != nil {
 		fmt.Printf("❌ NIP-5 verification failed for %s: %v\n", event.PubKey, err)
-		if !skipNIP5 {
-			return
-		}
-		senderNIP5 = "unverified@trustroots.org"
+		return
 	}
 
 	if !isVerified {
-		if !skipNIP5 {
-			fmt.Printf("⚠️  Skipping DM from unverified user: %s (NIP-5 not found)\n", event.PubKey)
-			return
-		}
-		senderNIP5 = "unverified@trustroots.org"
-		fmt.Printf("⚠️  Skipping NIP-5 verification (--skip-nip5 flag), using: %s\n", senderNIP5)
-	} else {
-		fmt.Printf("✅ NIP-5 verified: %s -> %s\n", event.PubKey, senderNIP5)
+		fmt.Printf("⚠️  Skipping DM from unverified user: %s (NIP-5 not found)\n", event.PubKey)
+		return
 	}
+
+	fmt.Printf("✅ NIP-5 verified: %s -> %s\n", event.PubKey, senderNIP5)
 
 	// Create a notification event with placeholder content (since we can't decrypt)
 	notificationEvent := *event
@@ -729,65 +703,6 @@ func displaySummary(users []User, validNpubs, invalidNpubs, emptyNpubs []User) {
 	fmt.Printf("Invalid/other npubs: %d\n", len(invalidNpubs))
 	fmt.Printf("Empty npubs: %d\n", len(emptyNpubs))
 
-}
-
-func sendTestNote(senderNpub, senderNsec, recipientNpub, message string, relays []string) error {
-	fmt.Printf("📤 Sending test DM from %s to %s\n", senderNpub, recipientNpub)
-	fmt.Printf("Using relays: %v\n", relays)
-
-	fmt.Printf("DM content: %s\n", message)
-
-	// Convert recipient npub to hex for p tag
-	recipientHex, err := npubToHex(recipientNpub)
-	if err != nil {
-		return fmt.Errorf("failed to convert recipient npub to hex: %v", err)
-	}
-
-	// Create the Nostr event using the library (NIP-4 DM)
-	event := &nostr.Event{
-		Kind:      4,       // NIP-4 encrypted direct message
-		Content:   message, // In a real implementation, this would be encrypted
-		CreatedAt: nostr.Now(),
-		Tags: nostr.Tags{
-			{"p", recipientHex}, // p tag contains hex pubkey of recipient
-		},
-	}
-
-	// Set the pubkey
-	event.PubKey = senderNpub
-
-	// Sign the event
-	err = event.Sign(senderNsec)
-	if err != nil {
-		return fmt.Errorf("failed to sign event: %v", err)
-	}
-
-	fmt.Printf("✅ Test DM created and signed\n")
-	fmt.Printf("Event ID: %s\n", event.ID)
-	fmt.Printf("Signature: %s\n", event.Sig)
-
-	// Display the full note structure
-	fmt.Println("\n📋 Full DM structure sent to relays:")
-	eventJSON, err := json.MarshalIndent(event, "", "  ")
-	if err != nil {
-		fmt.Printf("Error formatting event: %v\n", err)
-	} else {
-		fmt.Println(string(eventJSON))
-	}
-
-	// Send to relays using the library
-	pool := nostr.NewSimplePool(context.Background())
-	results := pool.PublishMany(context.Background(), relays, *event)
-
-	for result := range results {
-		if result.Error != nil {
-			fmt.Printf("❌ Failed to send to %s: %v\n", result.RelayURL, result.Error)
-		} else {
-			fmt.Printf("✅ Successfully sent to %s\n", result.RelayURL)
-		}
-	}
-
-	return nil
 }
 
 // Old manual implementation functions removed - using nostr library instead

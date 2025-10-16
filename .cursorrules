@@ -1,0 +1,50 @@
+# Nostr Email Notification Daemon - Cursor Rules
+
+## Nostr Protocol Implementation
+
+**IMPORTANT: DO NOT implement nostr protocol features manually.**
+
+### Required Approach
+- **ALWAYS** use an established nostr library for Go
+- **NEVER** manually implement:
+  - Event creation and signing
+  - WebSocket relay connections
+  - Bech32 encoding/decoding for npub/nsec
+  - Event ID calculation
+  - Signature verification
+  - NIP implementations
+
+### Approved Nostr Libraries
+- Use `github.com/nbd-wtf/go-nostr` (most actively maintained)
+- Alternative: `github.com/nostr-protocol/nostr-go`
+
+### Why?
+- Protocol complexity requires specialized knowledge
+- Security implications of incorrect implementations
+- Active maintenance and bug fixes
+- Community support and standards compliance
+- Reduced technical debt
+
+### Examples of What NOT to Do
+❌ Manual WebSocket connections for relays
+❌ Custom event signing with SHA256
+❌ DIY bech32 encoding/decoding
+❌ Manual NIP implementations
+
+### Examples of Correct Approach
+✅ Import and use go-nostr library
+✅ Use library methods for event creation
+✅ Use library's relay pool management
+✅ Use library's key handling utilities
+
+## Code Quality
+- Follow standard Go conventions
+- Use proper error handling
+- Add comprehensive logging
+- Write tests for critical paths
+
+## Dependencies
+- Keep dependencies up to date
+- Only use well-maintained libraries
+- Document why each dependency is needed
+

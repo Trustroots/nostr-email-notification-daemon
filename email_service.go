@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"html/template"
 	"log"
-	"time"
 
+	"github.com/nbd-wtf/go-nostr"
 	"github.com/vanng822/go-premailer/premailer"
 	"gopkg.in/gomail.v2"
 )
@@ -110,7 +110,7 @@ func NewEmailService(smtpHost string, smtpPort int, smtpUsername, smtpPassword, 
 }
 
 // GenerateNostrMentionEmail creates an email for a Nostr mention
-func (es *EmailService) GenerateNostrMentionEmail(event NostrEvent, mentionedUser User, senderNIP5 string) (*EmailTemplate, error) {
+func (es *EmailService) GenerateNostrMentionEmail(event *nostr.Event, mentionedUser User, senderNIP5 string) (*EmailTemplate, error) {
 	// Create email data
 	data := EmailTemplateData{
 		Username:     mentionedUser.Username,
@@ -120,8 +120,8 @@ func (es *EmailService) GenerateNostrMentionEmail(event NostrEvent, mentionedUse
 		SenderNIP5:   senderNIP5,
 		EventContent: event.Content,
 		EventID:      event.ID,
-		CreatedAt:    time.Unix(event.CreatedAt, 0).Format("2006-01-02 15:04:05 UTC"),
-		SenderNpub:   hexToNpub(event.PubKey),
+		CreatedAt:    event.CreatedAt.Time().Format("2006-01-02 15:04:05 UTC"),
+		SenderNpub:   event.PubKey,
 		Title:        "New Nostr Mention",
 		Subject:      fmt.Sprintf("Nostr Mention from %s", senderNIP5),
 		From: EmailSender{
@@ -219,7 +219,7 @@ func (es *EmailService) QueueEmailJob(job EmailJob) {
 }
 
 // ProcessNostrMention processes a Nostr mention and sends an email
-func (es *EmailService) ProcessNostrMention(event NostrEvent, mentionedUser User, senderNIP5 string) error {
+func (es *EmailService) ProcessNostrMention(event *nostr.Event, mentionedUser User, senderNIP5 string) error {
 	// Generate email template
 	template, err := es.GenerateNostrMentionEmail(event, mentionedUser, senderNIP5)
 	if err != nil {
@@ -239,7 +239,7 @@ func (es *EmailService) ProcessNostrMention(event NostrEvent, mentionedUser User
 }
 
 // ProcessNostrDirectMessage processes a Nostr direct message and sends an email
-func (es *EmailService) ProcessNostrDirectMessage(event NostrEvent, recipientUser User, senderNIP5 string) error {
+func (es *EmailService) ProcessNostrDirectMessage(event *nostr.Event, recipientUser User, senderNIP5 string) error {
 	// Generate email template for direct message
 	template, err := es.GenerateNostrDirectMessageEmail(event, recipientUser, senderNIP5)
 	if err != nil {
@@ -259,7 +259,7 @@ func (es *EmailService) ProcessNostrDirectMessage(event NostrEvent, recipientUse
 }
 
 // GenerateNostrDirectMessageEmail creates an email for a Nostr direct message
-func (es *EmailService) GenerateNostrDirectMessageEmail(event NostrEvent, recipientUser User, senderNIP5 string) (*EmailTemplate, error) {
+func (es *EmailService) GenerateNostrDirectMessageEmail(event *nostr.Event, recipientUser User, senderNIP5 string) (*EmailTemplate, error) {
 	// Create email data
 	data := EmailTemplateData{
 		Username:     recipientUser.Username,
@@ -269,8 +269,8 @@ func (es *EmailService) GenerateNostrDirectMessageEmail(event NostrEvent, recipi
 		SenderNIP5:   senderNIP5,
 		EventContent: event.Content,
 		EventID:      event.ID,
-		CreatedAt:    time.Unix(event.CreatedAt, 0).Format("2006-01-02 15:04:05 UTC"),
-		SenderNpub:   hexToNpub(event.PubKey),
+		CreatedAt:    event.CreatedAt.Time().Format("2006-01-02 15:04:05 UTC"),
+		SenderNpub:   event.PubKey,
 		Title:        "🔒 New Encrypted Direct Message",
 		Subject:      fmt.Sprintf("🔒 Encrypted DM from %s", senderNIP5),
 		From: EmailSender{

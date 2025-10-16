@@ -8,6 +8,10 @@ Will be redundant when
 
 For now it's probably a good way to move nostroots forward.
 
+## NIP-5 Verification
+
+**Important**: If a nostr pubkey (npub) is found in our MongoDB database with an associated username, this implies that `username@trustroots.org` is a valid NIP-5 identifier. The system constructs NIP-5 identifiers directly from the database without performing external NIP-5 lookups at trustroots.org, as the presence of the npub in our database already validates the association.
+
 ## Setup
 
 ### Docker (Recommended)

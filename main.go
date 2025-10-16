@@ -12,11 +12,13 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/gorilla/websocket"
+	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -31,23 +33,23 @@ type User struct {
 	NostrNpub string `bson:"nostrNpub,omitempty"`
 }
 
-// Config represents the configuration file structure
+// Config represents the configuration structure
 type Config struct {
 	MongoDB struct {
-		URI      string `json:"uri"`
-		Database string `json:"database"`
-	} `json:"mongodb"`
-	SenderNpub  string   `json:"sender-npub"`
-	SenderNsec  string   `json:"sender-nsec"`
-	SenderEmail string   `json:"sender-email"`
-	Relays      []string `json:"relays"`
+		URI      string
+		Database string
+	}
+	SenderNpub  string
+	SenderNsec  string
+	SenderEmail string
+	Relays      []string
 	SMTP        struct {
-		Host     string `json:"host"`
-		Port     int    `json:"port"`
-		Username string `json:"username"`
-		Password string `json:"password"`
-		FromName string `json:"from_name"`
-	} `json:"smtp"`
+		Host     string
+		Port     int
+		Username string
+		Password string
+		FromName string
+	}
 }
 
 // NostrEvent represents a nostr event
@@ -84,15 +86,10 @@ func main() {
 	skipNIP5Flag := flag.Bool("skip-nip5", false, "Skip NIP-5 verification for testing purposes")
 	flag.Parse()
 
-	// Load configuration
-	config, err := loadConfig("config.json")
+	// Load configuration from environment variables
+	config, err := loadConfigFromEnv()
 	if err != nil {
 		log.Fatal("Failed to load config:", err)
-	}
-
-	// Override MongoDB URI with environment variable if set
-	if mongoURI := os.Getenv("MONGODB_URI"); mongoURI != "" {
-		config.MongoDB.URI = mongoURI
 	}
 
 	// Check MongoDB connectivity first before any other operations
@@ -164,19 +161,89 @@ func main() {
 	displaySummary(users, validNpubs, invalidNpubs, emptyNpubs)
 }
 
-func loadConfig(filename string) (*Config, error) {
-	file, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, err
+func loadConfigFromEnv() (*Config, error) {
+	// Load .env file if it exists
+	if err := godotenv.Load(); err != nil {
+		log.Printf("Warning: .env file not found, using system environment variables: %v", err)
 	}
 
-	var config Config
-	err = json.Unmarshal(file, &config)
-	if err != nil {
-		return nil, err
+	// Parse SMTP port
+	smtpPort := 587 // default
+	if portStr := os.Getenv("SMTP_PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			smtpPort = port
+		}
 	}
 
-	return &config, nil
+	// Parse relays (comma-separated)
+	var relays []string
+	if relaysStr := os.Getenv("NOSTR_RELAYS"); relaysStr != "" {
+		relays = strings.Split(relaysStr, ",")
+		// Trim whitespace from each relay
+		for i, relay := range relays {
+			relays[i] = strings.TrimSpace(relay)
+		}
+	}
+
+	config := &Config{
+		MongoDB: struct {
+			URI      string
+			Database string
+		}{
+			URI:      getEnvOrDefault("MONGODB_URI", "mongodb://localhost:27017"),
+			Database: getEnvOrDefault("MONGODB_DATABASE", "trustroots"),
+		},
+		SenderNpub:  os.Getenv("SENDER_NPUB"),
+		SenderNsec:  os.Getenv("SENDER_NSEC"),
+		SenderEmail: os.Getenv("SENDER_EMAIL"),
+		Relays:      relays,
+		SMTP: struct {
+			Host     string
+			Port     int
+			Username string
+			Password string
+			FromName string
+		}{
+			Host:     os.Getenv("SMTP_HOST"),
+			Port:     smtpPort,
+			Username: os.Getenv("SMTP_USERNAME"),
+			Password: os.Getenv("SMTP_PASSWORD"),
+			FromName: os.Getenv("SMTP_FROM_NAME"),
+		},
+	}
+
+	// Validate required fields
+	if config.SenderNpub == "" {
+		return nil, fmt.Errorf("SENDER_NPUB environment variable is required")
+	}
+	if config.SenderNsec == "" {
+		return nil, fmt.Errorf("SENDER_NSEC environment variable is required")
+	}
+	if config.SenderEmail == "" {
+		return nil, fmt.Errorf("SENDER_EMAIL environment variable is required")
+	}
+	if len(config.Relays) == 0 {
+		return nil, fmt.Errorf("NOSTR_RELAYS environment variable is required")
+	}
+	if config.SMTP.Host == "" {
+		return nil, fmt.Errorf("SMTP_HOST environment variable is required")
+	}
+	if config.SMTP.Username == "" {
+		return nil, fmt.Errorf("SMTP_USERNAME environment variable is required")
+	}
+	if config.SMTP.Password == "" {
+		return nil, fmt.Errorf("SMTP_PASSWORD environment variable is required")
+	}
+
+	return config, nil
+}
+
+// getEnvOrDefault returns the environment variable value or a default if not set
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
 }
 
 func connectToMongoDB(config *Config) (*mongo.Client, error) {
@@ -708,18 +775,13 @@ func verifyNIP5FromDB(pubkey string, client *mongo.Client) (bool, string, error)
 
 // getConfig returns a basic config for MongoDB connection
 func getConfig() Config {
-	mongoURI := os.Getenv("MONGODB_URI")
-	if mongoURI == "" {
-		mongoURI = "mongodb://localhost:27017"
-	}
-
 	return Config{
 		MongoDB: struct {
-			URI      string `json:"uri"`
-			Database string `json:"database"`
+			URI      string
+			Database string
 		}{
-			URI:      mongoURI,
-			Database: "trustroots",
+			URI:      getEnvOrDefault("MONGODB_URI", "mongodb://localhost:27017"),
+			Database: getEnvOrDefault("MONGODB_DATABASE", "trustroots"),
 		},
 	}
 }

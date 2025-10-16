@@ -12,50 +12,6 @@ import (
 )
 
 // Note: EmailTemplateData and EmailSender are defined in email_service.go
-// We need to redefine them here for the preview server to work independently
-type EmailTemplateData struct {
-	// User data
-	Name      string
-	FirstName string
-	Email     string
-	Username  string
-
-	// URLs
-	HeaderURL        string
-	FooterURL        string
-	SupportURL       string
-	ProfileURL       string
-	SenderProfileURL string
-
-	// Email content
-	Subject   string
-	Title     string
-	MailTitle string
-
-	// Sender info
-	From EmailSender
-
-	// Campaign tracking
-	UTMCampaign       string
-	SparkpostCampaign string
-
-	// Custom content
-	Content map[string]interface{}
-
-	// Nostr specific fields
-	EventContent  string
-	EventID       string
-	CreatedAt     string
-	SenderNIP5    string
-	SenderNpub    string
-	RecipientNpub string
-}
-
-// EmailSender represents sender information
-type EmailSender struct {
-	Name    string
-	Address string
-}
 
 // Sample data for direct message preview
 var sampleDMData = EmailTemplateData{
@@ -229,7 +185,7 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, html)
 }
 
-func mainPreview() {
+func startPreviewServer() {
 	// Set up routes
 	http.HandleFunc("/", handleIndex)
 	http.HandleFunc("/preview/dm/html", handleDMPreview)
@@ -244,12 +200,4 @@ func mainPreview() {
 	fmt.Println("\nPress Ctrl+C to stop the server")
 
 	log.Fatal(http.ListenAndServe(":"+port, nil))
-}
-
-func mainPreviewServer() {
-	mainPreview()
-}
-
-func main() {
-	mainPreviewServer()
 }

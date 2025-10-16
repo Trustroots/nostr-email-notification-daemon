@@ -169,7 +169,7 @@ func loadConfigFromEnv() (*Config, error) {
 
 	// Parse SMTP port
 	smtpPort := 587 // default
-	if portStr := os.Getenv("SMTP_PORT"); portStr != "" {
+	if portStr := os.Getenv("NOSTREMAIL_SMTP_PORT"); portStr != "" {
 		if port, err := strconv.Atoi(portStr); err == nil {
 			smtpPort = port
 		}
@@ -177,7 +177,7 @@ func loadConfigFromEnv() (*Config, error) {
 
 	// Parse relays (comma-separated)
 	var relays []string
-	if relaysStr := os.Getenv("NOSTR_RELAYS"); relaysStr != "" {
+	if relaysStr := os.Getenv("NOSTREMAIL_RELAYS"); relaysStr != "" {
 		relays = strings.Split(relaysStr, ",")
 		// Trim whitespace from each relay
 		for i, relay := range relays {
@@ -190,12 +190,12 @@ func loadConfigFromEnv() (*Config, error) {
 			URI      string
 			Database string
 		}{
-			URI:      getEnvOrDefault("MONGODB_URI", "mongodb://localhost:27017"),
-			Database: getEnvOrDefault("MONGODB_DATABASE", "trustroots"),
+			URI:      getEnvOrDefault("MONGO_URI", "mongodb://localhost:27017"),
+			Database: getEnvOrDefault("MONGO_DB", "trust-roots"),
 		},
-		SenderNpub:  os.Getenv("SENDER_NPUB"),
-		SenderNsec:  os.Getenv("SENDER_NSEC"),
-		SenderEmail: os.Getenv("SENDER_EMAIL"),
+		SenderNpub:  os.Getenv("NOSTREMAIL_SENDER_NPUB"),
+		SenderNsec:  os.Getenv("NOSTREMAIL_SENDER_NSEC"),
+		SenderEmail: os.Getenv("NOSTREMAIL_SENDER_EMAIL"),
 		Relays:      relays,
 		SMTP: struct {
 			Host     string
@@ -204,35 +204,35 @@ func loadConfigFromEnv() (*Config, error) {
 			Password string
 			FromName string
 		}{
-			Host:     os.Getenv("SMTP_HOST"),
+			Host:     os.Getenv("NOSTREMAIL_SMTP_HOST"),
 			Port:     smtpPort,
-			Username: os.Getenv("SMTP_USERNAME"),
-			Password: os.Getenv("SMTP_PASSWORD"),
-			FromName: os.Getenv("SMTP_FROM_NAME"),
+			Username: os.Getenv("NOSTREMAIL_SMTP_USERNAME"),
+			Password: os.Getenv("NOSTREMAIL_SMTP_PASSWORD"),
+			FromName: os.Getenv("NOSTREMAIL_SMTP_FROM_NAME"),
 		},
 	}
 
 	// Validate required fields
 	if config.SenderNpub == "" {
-		return nil, fmt.Errorf("SENDER_NPUB environment variable is required")
+		return nil, fmt.Errorf("NOSTREMAIL_SENDER_NPUB environment variable is required")
 	}
 	if config.SenderNsec == "" {
-		return nil, fmt.Errorf("SENDER_NSEC environment variable is required")
+		return nil, fmt.Errorf("NOSTREMAIL_SENDER_NSEC environment variable is required")
 	}
 	if config.SenderEmail == "" {
-		return nil, fmt.Errorf("SENDER_EMAIL environment variable is required")
+		return nil, fmt.Errorf("NOSTREMAIL_SENDER_EMAIL environment variable is required")
 	}
 	if len(config.Relays) == 0 {
-		return nil, fmt.Errorf("NOSTR_RELAYS environment variable is required")
+		return nil, fmt.Errorf("NOSTREMAIL_RELAYS environment variable is required")
 	}
 	if config.SMTP.Host == "" {
-		return nil, fmt.Errorf("SMTP_HOST environment variable is required")
+		return nil, fmt.Errorf("NOSTREMAIL_SMTP_HOST environment variable is required")
 	}
 	if config.SMTP.Username == "" {
-		return nil, fmt.Errorf("SMTP_USERNAME environment variable is required")
+		return nil, fmt.Errorf("NOSTREMAIL_SMTP_USERNAME environment variable is required")
 	}
 	if config.SMTP.Password == "" {
-		return nil, fmt.Errorf("SMTP_PASSWORD environment variable is required")
+		return nil, fmt.Errorf("NOSTREMAIL_SMTP_PASSWORD environment variable is required")
 	}
 
 	return config, nil

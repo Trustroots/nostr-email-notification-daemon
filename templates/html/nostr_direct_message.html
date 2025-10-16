@@ -2,36 +2,47 @@
 
 {{define "content"}}
 <div class="container">
-    <div class="message-card">
-        <div class="message-header-title">
-            <h1>{{.Title}}</h1>
+    <div class="white-content-area">
+        <div class="greeting">
+            <p>Hello {{.FirstName}}!</p>
         </div>
         
         <div class="message-content">
             <div class="encrypted-notice">
-                <p><strong>🔒 Encrypted Message from <a href="{{.SenderProfileURL}}">{{.SenderNIP5}}</a></strong></p>
-                <p>Open your Nostr client to read it.</p>
+                <p>You have received an encrypted message from <a href="{{.SenderProfileURL}}">{{.SenderNIP5}}</a></p>
+                <p>Open your nostr client to read it, for example</p>
                 <div class="action-buttons">
                     <a href="{{.Content.buttonURL}}" class="btn btn-primary">{{.Content.buttonText}}</a>
                 </div>
             </div>
         </div>
         
-        <div class="message-footer">
-            <p><strong>To reply:</strong> Use your Nostr client to send a message back to {{.SenderNIP5}}</p>
-        </div>
     </div>
 </div>
 
 <style>
-.message-card {
+.white-content-area {
+    background-color: white;
     border: 1px solid #ddd;
     border-radius: 8px;
     padding: 20px;
     margin: 20px auto;
     max-width: 600px;
-    background-color: #f9f9f9;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     font-family: Arial, sans-serif;
+}
+
+.greeting {
+    margin-bottom: 15px;
+}
+
+.greeting p {
+    margin: 0;
+    font-size: 18px;
+    color: #333;
+    font-family: Arial, sans-serif;
+    font-weight: normal;
+    text-align: left;
 }
 
 .message-header-title h1 {
@@ -40,6 +51,7 @@
     font-size: 24px;
     font-weight: bold;
     font-family: Arial, sans-serif;
+    text-align: left;
 }
 
 .message-header h2 {
@@ -79,6 +91,7 @@
     margin: 5px 0;
     font-family: Arial, sans-serif;
     font-size: 16px;
+    text-align: left;
 }
 
 .encrypted-notice a {

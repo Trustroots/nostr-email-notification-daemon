@@ -11,6 +11,10 @@
             margin:0; padding:0; width:100% !important;
         }
         
+        body {
+            background-color: #F5F5F5;
+        }
+        
         /* Framework styles */
         .flexibleContainerCell { padding:20px; }
         #emailBody { 
@@ -72,8 +76,8 @@
                     <table border="0" cellpadding="0" cellspacing="0" width="600" id="emailHeader">
                         <tr>
                             <td align="center" valign="middle">
-                                {{if .HeaderURL}}<a href="{{.HeaderURL}}" target="_blank" rel="noopener">{{end}}
-                                    <h2 style="color:#12b591; font-size:24px; margin:0; padding:10px 0;">TRUSTROOTS</h2>
+                                {{if .HeaderURL}}<a href="{{.HeaderURL}}" target="_blank" rel="noopener" style="text-decoration:none;">{{end}}
+                                    <h2 style="color:#4A4A4A; font-size:18px; margin:0; padding:10px 0; font-weight:bold; font-family:Arial, sans-serif; text-decoration:none;">TRUSTROOTS</h2>
                                     
                                 {{if .HeaderURL}}</a>{{end}}
                             </td>

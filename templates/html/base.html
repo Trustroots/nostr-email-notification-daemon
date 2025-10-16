@@ -73,8 +73,8 @@
                         <tr>
                             <td align="center" valign="middle">
                                 {{if .HeaderURL}}<a href="{{.HeaderURL}}" target="_blank" rel="noopener">{{end}}
-                                    <h2 style="color:#12b591; font-size:24px; margin:0; padding:10px 0;">🌍 TRUSTROOTS</h2>
-                                    <p style="margin:0; font-size:12px; color:#666;">A community of travelers</p>
+                                    <h2 style="color:#12b591; font-size:24px; margin:0; padding:10px 0;">TRUSTROOTS</h2>
+                                    
                                 {{if .HeaderURL}}</a>{{end}}
                             </td>
                         </tr>
@@ -101,11 +101,11 @@
                     <table border="0" cellpadding="0" cellspacing="0" width="600" id="emailFooter">
                         <tr>
                             <td class="textContent" style="text-align:center; font-size:12px; color:#555555;">
-                                You can actually reply to this email directly, we will be happy to hear from you as we're still very early stage testing nostroots stuff.<br><br/>
+                                <strong>Note:</strong> You can reply to this email directly, but your reply will go to the nostroots development team, not to the person who sent you the Nostr message. We'd be happy to hear from you as we're still in early stage testing of nostroots features!<br><br/>
                                 
                                 You are receiving this email because you have 
                                 <a href="https://trustroots.org/profile/{{.Username}}">an active account</a> 
-                                on Trustroots and added a Nostr public key (npub) to your profile.
+                                on Trustroots and added a Nostr public key ({{.RecipientNpub}}) to your profile.
                                 <br/><br/>
                                 
                                 {{if .FooterURL}}<a href="{{.FooterURL}}">{{end}}

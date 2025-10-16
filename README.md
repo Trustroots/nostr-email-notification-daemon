@@ -1,6 +1,6 @@
 # Trustroots Nostr Email Contact Tool
 
-Connects to MongoDB to find Trustroots users with nostrNpub set and listen for mentions on Nostr relays.
+Connects to MongoDB to find Trustroots users with nostrNpub set and listen for direct messages on Nostr relays.
 
 Will be redundant when
 1. a working app has push notifications
@@ -32,9 +32,25 @@ docker-compose up -d
 ```bash
 go run main.go                    # Show summary
 go run main.go --list-users      # List users in categories  
-go run main.go --nostr-listen    # Listen for mentions
-go run main.go --test --send-to-npub <npub> --msg "<message>"  # Send test note
+go run main.go --nostr-listen    # Listen for direct messages
+go run main.go --test --send-to-npub <npub> --msg "<message>"  # Send test direct message
 ```
+
+## Email Preview
+
+Preview how email notifications will look in the browser:
+
+```bash
+./preview.sh                      # Start preview server
+# or
+go run preview_server.go          # Alternative way to start
+```
+
+Then open http://localhost:8080 in your browser to see:
+- **HTML Direct Message Preview**: How encrypted DM notifications look
+- **Text Direct Message Preview**: Plain text version of DMs
+
+This makes it easy to see how emails will appear to users and test template changes.
 
 ## Config
 

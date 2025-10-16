@@ -2,74 +2,125 @@
 
 {{define "content"}}
 <div class="container">
-    <h1>{{.Title}}</h1>
-    
-    <div class="message-card encrypted-message">
-        <div class="message-header">
-            <h2>🔒 Encrypted Direct Message from {{.SenderNIP5}}</h2>
-            <p class="timestamp">{{.CreatedAt}}</p>
+    <div class="message-card">
+        <div class="message-header-title">
+            <h1>{{.Title}}</h1>
         </div>
         
         <div class="message-content">
             <div class="encrypted-notice">
-                <p><strong>🔐 Encrypted Message Received</strong></p>
-                <p>You have received a private, encrypted direct message. The content is encrypted and can only be decrypted by you using your Nostr client.</p>
+                <p><strong>🔒 Encrypted Message from <a href="{{.SenderProfileURL}}">{{.SenderNIP5}}</a></strong></p>
+                <p>Open your Nostr client to read it.</p>
+                <div class="action-buttons">
+                    <a href="{{.Content.buttonURL}}" class="btn btn-primary">{{.Content.buttonText}}</a>
+                </div>
             </div>
         </div>
         
         <div class="message-footer">
-            <p><strong>Sender:</strong> {{.SenderNIP5}} ({{.SenderNpub}})</p>
-            <p><strong>Event ID:</strong> <code>{{.EventID}}</code></p>
-            <p><strong>Message Type:</strong> NIP-4 Encrypted Direct Message</p>
+            <p><strong>To reply:</strong> Use your Nostr client to send a message back to {{.SenderNIP5}}</p>
         </div>
-    </div>
-    
-    <div class="action-buttons">
-        <a href="{{.Content.buttonURL}}" class="btn btn-primary">{{.Content.buttonText}}</a>
-        <a href="{{.ProfileURL}}" class="btn btn-secondary">View Profile</a>
-    </div>
-    
-    <div class="info-box">
-        <h3>How to Read This Message</h3>
-        <ol>
-            <li>Open your Nostr client (like Snort, Damus, or Amethyst)</li>
-            <li>Make sure you're logged in with the account that received this message</li>
-            <li>Look for the direct message from {{.SenderNIP5}}</li>
-            <li>Your client will automatically decrypt the message for you</li>
-        </ol>
-        
-        <h3>About NIP-4 Direct Messages</h3>
-        <p>NIP-4 messages are encrypted end-to-end, meaning only you and the sender can read the content. This notification system cannot decrypt the message for security reasons - you'll need to use your Nostr client to read it.</p>
-        
-        <p><strong>To reply:</strong> Use your Nostr client to send a direct message back to {{.SenderNIP5}}.</p>
     </div>
 </div>
 
 <style>
-.encrypted-message {
-    border-left: 4px solid #ff6b35;
-    background-color: #fff8f5;
+.message-card {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 20px auto;
+    max-width: 600px;
+    background-color: #f9f9f9;
+    font-family: Arial, sans-serif;
+}
+
+.message-header-title h1 {
+    margin: 0 0 20px 0;
+    color: #333;
+    font-size: 24px;
+    font-weight: bold;
+    font-family: Arial, sans-serif;
+}
+
+.message-header h2 {
+    margin: 0 0 10px 0;
+    color: #333;
+    font-family: Arial, sans-serif;
+    font-weight: bold;
+}
+
+.message-header h2 a {
+    color: #12b591;
+    text-decoration: none;
+    font-family: Arial, sans-serif;
+}
+
+.message-header h2 a:hover {
+    text-decoration: underline;
+}
+
+.timestamp {
+    color: #666;
+    font-size: 14px;
+    margin: 0;
+    font-family: Arial, sans-serif;
 }
 
 .encrypted-notice {
-    background-color: #f0f8ff;
+    background-color: #e8f4fd;
     border: 1px solid #4a90e2;
-    border-radius: 8px;
-    padding: 16px;
-    margin: 16px 0;
+    border-radius: 6px;
+    padding: 15px;
+    margin: 15px 0;
+    font-family: Arial, sans-serif;
 }
 
 .encrypted-notice p {
-    margin: 8px 0;
+    margin: 5px 0;
+    font-family: Arial, sans-serif;
+    font-size: 16px;
 }
 
-.info-box ol {
-    margin: 12px 0;
-    padding-left: 20px;
+.encrypted-notice a {
+    color: #12b591;
+    text-decoration: none;
+    font-family: Arial, sans-serif;
+    font-weight: bold;
 }
 
-.info-box li {
-    margin: 8px 0;
+.encrypted-notice a:hover {
+    text-decoration: underline;
+}
+
+.action-buttons {
+    text-align: center;
+    margin: 15px 0 0 0;
+}
+
+.btn {
+    display: inline-block;
+    padding: 12px 24px;
+    background-color: #12b591;
+    color: white !important;
+    text-decoration: none;
+    border-radius: 4px;
+    font-weight: bold;
+    font-family: Arial, sans-serif;
+    font-size: 16px;
+}
+
+.btn:hover {
+    background-color: #0fa078;
+    color: white !important;
+}
+
+.message-footer {
+    border-top: 1px solid #ddd;
+    padding-top: 15px;
+    margin-top: 15px;
+    font-size: 14px;
+    color: #666;
+    font-family: Arial, sans-serif;
 }
 </style>
 {{end}}

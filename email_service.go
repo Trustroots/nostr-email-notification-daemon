@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"strings"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/vanng822/go-premailer/premailer"
@@ -20,10 +21,11 @@ type EmailTemplateData struct {
 	Username  string
 
 	// URLs
-	HeaderURL  string
-	FooterURL  string
-	SupportURL string
-	ProfileURL string
+	HeaderURL        string
+	FooterURL        string
+	SupportURL       string
+	ProfileURL       string
+	SenderProfileURL string
 
 	// Email content
 	Subject   string
@@ -41,11 +43,12 @@ type EmailTemplateData struct {
 	Content map[string]interface{}
 
 	// Nostr specific fields
-	EventContent string
-	EventID      string
-	CreatedAt    string
-	SenderNIP5   string
-	SenderNpub   string
+	EventContent  string
+	EventID       string
+	CreatedAt     string
+	SenderNIP5    string
+	SenderNpub    string
+	RecipientNpub string
 }
 
 // EmailSender represents sender information
@@ -81,6 +84,27 @@ type EmailJob struct {
 	Text    string
 }
 
+// extractUsernameFromNIP5 extracts the username from a NIP-5 identifier
+// e.g., "nostroots@trustroots.org" -> "nostroots"
+func extractUsernameFromNIP5(nip5 string) string {
+	if nip5 == "" {
+		return ""
+	}
+
+	// Split by @ and take the first part
+	parts := strings.Split(nip5, "@")
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return ""
+}
+
+// getRecipientNpub gets the npub for a user (this would need to be passed from the main function)
+// For now, we'll use a placeholder that gets replaced in the template
+func getRecipientNpub(user User) string {
+	return user.NostrNpub
+}
+
 // NewEmailService creates a new email service
 func NewEmailService(smtpHost string, smtpPort int, smtpUsername, smtpPassword, fromEmail, fromName string) *EmailService {
 	// Load HTML templates
@@ -107,53 +131,6 @@ func NewEmailService(smtpHost string, smtpPort int, smtpUsername, smtpPassword, 
 		htmlTemplates: htmlTemplates,
 		textTemplates: textTemplates,
 	}
-}
-
-// GenerateNostrMentionEmail creates an email for a Nostr mention
-func (es *EmailService) GenerateNostrMentionEmail(event *nostr.Event, mentionedUser User, senderNIP5 string) (*EmailTemplate, error) {
-	// Create email data
-	data := EmailTemplateData{
-		Username:     mentionedUser.Username,
-		Name:         mentionedUser.Username,
-		FirstName:    mentionedUser.Username,
-		Email:        mentionedUser.Email,
-		SenderNIP5:   senderNIP5,
-		EventContent: event.Content,
-		EventID:      event.ID,
-		CreatedAt:    event.CreatedAt.Time().Format("2006-01-02 15:04:05 UTC"),
-		SenderNpub:   event.PubKey,
-		Title:        "New Nostr Mention",
-		Subject:      fmt.Sprintf("Nostr Mention from %s", senderNIP5),
-		From: EmailSender{
-			Name:    "Trustroots Nostr",
-			Address: es.FromEmail,
-		},
-		SupportURL: "https://trustroots.org/support",
-		FooterURL:  "https://trustroots.org",
-		ProfileURL: "https://trustroots.org/profile",
-		Content: map[string]interface{}{
-			"buttonURL":  fmt.Sprintf("https://snort.social/e/%s", event.ID),
-			"buttonText": "View on Snort.social",
-		},
-	}
-
-	// Generate HTML content
-	htmlContent, err := es.renderHTMLTemplate("nostr_mention", data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to render HTML template: %v", err)
-	}
-
-	// Generate text content
-	textContent, err := es.renderTextTemplate("nostr_mention", data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to render text template: %v", err)
-	}
-
-	return &EmailTemplate{
-		Subject:     data.Subject,
-		HTMLContent: htmlContent,
-		TextContent: textContent,
-	}, nil
 }
 
 // renderHTMLTemplate renders the HTML email template
@@ -218,26 +195,6 @@ func (es *EmailService) QueueEmailJob(job EmailJob) {
 	}()
 }
 
-// ProcessNostrMention processes a Nostr mention and sends an email
-func (es *EmailService) ProcessNostrMention(event *nostr.Event, mentionedUser User, senderNIP5 string) error {
-	// Generate email template
-	template, err := es.GenerateNostrMentionEmail(event, mentionedUser, senderNIP5)
-	if err != nil {
-		return fmt.Errorf("failed to generate email template: %v", err)
-	}
-
-	// Queue email job
-	job := EmailJob{
-		To:      mentionedUser.Email,
-		Subject: template.Subject,
-		HTML:    template.HTMLContent,
-		Text:    template.TextContent,
-	}
-
-	es.QueueEmailJob(job)
-	return nil
-}
-
 // ProcessNostrDirectMessage processes a Nostr direct message and sends an email
 func (es *EmailService) ProcessNostrDirectMessage(event *nostr.Event, recipientUser User, senderNIP5 string) error {
 	// Generate email template for direct message
@@ -260,29 +217,34 @@ func (es *EmailService) ProcessNostrDirectMessage(event *nostr.Event, recipientU
 
 // GenerateNostrDirectMessageEmail creates an email for a Nostr direct message
 func (es *EmailService) GenerateNostrDirectMessageEmail(event *nostr.Event, recipientUser User, senderNIP5 string) (*EmailTemplate, error) {
+	// Extract sender username from NIP-5 identifier
+	senderUsername := extractUsernameFromNIP5(senderNIP5)
+
 	// Create email data
 	data := EmailTemplateData{
-		Username:     recipientUser.Username,
-		Name:         recipientUser.Username,
-		FirstName:    recipientUser.Username,
-		Email:        recipientUser.Email,
-		SenderNIP5:   senderNIP5,
-		EventContent: event.Content,
-		EventID:      event.ID,
-		CreatedAt:    event.CreatedAt.Time().Format("2006-01-02 15:04:05 UTC"),
-		SenderNpub:   event.PubKey,
-		Title:        "🔒 New Encrypted Direct Message",
-		Subject:      fmt.Sprintf("🔒 Encrypted DM from %s", senderNIP5),
+		Username:      recipientUser.Username,
+		Name:          recipientUser.Username,
+		FirstName:     recipientUser.Username,
+		Email:         recipientUser.Email,
+		SenderNIP5:    senderNIP5,
+		EventContent:  event.Content,
+		EventID:       event.ID,
+		CreatedAt:     event.CreatedAt.Time().Format("2006-01-02 15:04:05 UTC"),
+		SenderNpub:    event.PubKey,
+		RecipientNpub: recipientUser.NostrNpub,
+		Title:         "🔒 New Encrypted Direct Message",
+		Subject:       fmt.Sprintf("🔒 Encrypted DM from %s", senderNIP5),
 		From: EmailSender{
 			Name:    "Trustroots Nostr",
 			Address: es.FromEmail,
 		},
-		SupportURL: "https://trustroots.org/support",
-		FooterURL:  "https://trustroots.org",
-		ProfileURL: "https://trustroots.org/profile",
+		SupportURL:       "https://trustroots.org/support",
+		FooterURL:        "https://trustroots.org",
+		ProfileURL:       fmt.Sprintf("https://www.trustroots.org/profile/%s", recipientUser.Username),
+		SenderProfileURL: fmt.Sprintf("https://www.trustroots.org/profile/%s", senderUsername),
 		Content: map[string]interface{}{
-			"buttonURL":  fmt.Sprintf("https://snort.social/e/%s", event.ID),
-			"buttonText": "View on Snort.social",
+			"buttonURL":  fmt.Sprintf("https://tripch.at/#dm:%s", event.PubKey),
+			"buttonText": "View on TRipch.at",
 		},
 	}
 

@@ -4,8 +4,20 @@ services:
     build: .
     container_name: nostremail-app
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      - MONGODB_URI=mongodb://host.docker.internal:27017/trustroots
+      - MONGO_URI=${MONGODB_URI}
+      - MONGO_DB=${MONGODB_DATABASE}
+      - NOSTREMAIL_SENDER_NPUB=${NOSTREMAIL_SENDER_NPUB}
+      - NOSTREMAIL_SENDER_NSEC=${NOSTREMAIL_SENDER_NSEC}
+      - NOSTREMAIL_SENDER_EMAIL=${NOSTREMAIL_SENDER_EMAIL}
+      - NOSTREMAIL_RELAYS=${NOSTREMAIL_RELAYS}
+      - NOSTREMAIL_SMTP_HOST=${NOSTREMAIL_SMTP_HOST}
+      - NOSTREMAIL_SMTP_PORT=${NOSTREMAIL_SMTP_PORT}
+      - NOSTREMAIL_SMTP_USERNAME=${NOSTREMAIL_SMTP_USERNAME}
+      - NOSTREMAIL_SMTP_PASSWORD=${NOSTREMAIL_SMTP_PASSWORD}
+      - NOSTREMAIL_SMTP_FROM_NAME=${NOSTREMAIL_SMTP_FROM_NAME}
     volumes:
       - ./config.json:/root/config.json:ro
       - nostremail_data:/data

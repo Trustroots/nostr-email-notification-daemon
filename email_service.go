@@ -196,9 +196,9 @@ func (es *EmailService) QueueEmailJob(job EmailJob) {
 }
 
 // ProcessNostrDirectMessage processes a Nostr direct message and sends an email
-func (es *EmailService) ProcessNostrDirectMessage(event *nostr.Event, recipientUser User, senderNIP5 string) error {
+func (es *EmailService) ProcessNostrDirectMessage(event *nostr.Event, recipientUser User, senderNIP5 string, senderNpub string) error {
 	// Generate email template for direct message
-	template, err := es.GenerateNostrDirectMessageEmail(event, recipientUser, senderNIP5)
+	template, err := es.GenerateNostrDirectMessageEmail(event, recipientUser, senderNIP5, senderNpub)
 	if err != nil {
 		return fmt.Errorf("failed to generate DM email template: %v", err)
 	}
@@ -216,7 +216,7 @@ func (es *EmailService) ProcessNostrDirectMessage(event *nostr.Event, recipientU
 }
 
 // GenerateNostrDirectMessageEmail creates an email for a Nostr direct message
-func (es *EmailService) GenerateNostrDirectMessageEmail(event *nostr.Event, recipientUser User, senderNIP5 string) (*EmailTemplate, error) {
+func (es *EmailService) GenerateNostrDirectMessageEmail(event *nostr.Event, recipientUser User, senderNIP5 string, senderNpub string) (*EmailTemplate, error) {
 	// Extract sender username from NIP-5 identifier
 	senderUsername := extractUsernameFromNIP5(senderNIP5)
 
@@ -230,7 +230,7 @@ func (es *EmailService) GenerateNostrDirectMessageEmail(event *nostr.Event, reci
 		EventContent:  event.Content,
 		EventID:       event.ID,
 		CreatedAt:     event.CreatedAt.Time().Format("2006-01-02 15:04:05 UTC"),
-		SenderNpub:    event.PubKey,
+		SenderNpub:    senderNpub,
 		RecipientNpub: recipientUser.NostrNpub,
 		Title:         "🔒 New Encrypted Direct Message",
 		Subject:       fmt.Sprintf("🔒 Encrypted DM from %s", senderNIP5),
@@ -243,7 +243,7 @@ func (es *EmailService) GenerateNostrDirectMessageEmail(event *nostr.Event, reci
 		ProfileURL:       fmt.Sprintf("https://www.trustroots.org/profile/%s", recipientUser.Username),
 		SenderProfileURL: fmt.Sprintf("https://www.trustroots.org/profile/%s", senderUsername),
 		Content: map[string]interface{}{
-			"buttonURL":  fmt.Sprintf("https://tripch.at/#dm:%s", event.PubKey),
+			"buttonURL":  fmt.Sprintf("https://tripch.at/#dm:%s", senderNpub),
 			"buttonText": "View on TRipch.at",
 		},
 	}

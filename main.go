@@ -258,7 +258,7 @@ func getGitCommitInfo() (string, string) {
 		return commitHash, "unknown"
 	}
 	commitDateStr := strings.TrimSpace(string(dateOutput))
-	
+
 	// Parse the date and format it as YYYYMMDD-hh:mm
 	if commitDate, err := time.Parse("2006-01-02 15:04:05 -0700", commitDateStr); err == nil {
 		return commitHash, commitDate.Format("20060102-15:04")
@@ -530,7 +530,7 @@ func processDirectMessage(event *nostr.Event, user User, npubToUser map[string]U
 	notificationEvent.Content = "[Encrypted Direct Message - Content not available]"
 
 	// Send email notification
-	err = emailService.ProcessNostrDirectMessage(&notificationEvent, user, senderNIP5)
+	err = emailService.ProcessNostrDirectMessage(&notificationEvent, user, senderNIP5, eventNpub)
 	if err != nil {
 		fmt.Printf("❌ Failed to send email to %s: %v\n", user.Username, err)
 	} else {

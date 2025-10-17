@@ -218,10 +218,32 @@ func getEnvOrDefault(key, defaultValue string) string {
 
 // getGitCommitInfo returns the first 8 characters of the commit hash and the commit date
 func getGitCommitInfo() (string, string) {
+	// Check if we're in a git repository
+	if _, err := os.Stat(".git"); os.IsNotExist(err) {
+		// Try to get from environment variables (useful for Docker builds)
+		if buildHash := os.Getenv("GIT_COMMIT_HASH"); buildHash != "" {
+			if len(buildHash) >= 8 {
+				buildHash = buildHash[:8]
+			}
+			if buildDate := os.Getenv("GIT_COMMIT_DATE"); buildDate != "" {
+				return buildHash, buildDate
+			}
+			return buildHash, "unknown"
+		}
+		return "unknown", "unknown"
+	}
+
 	// Get commit hash
 	hashCmd := exec.Command("git", "rev-parse", "HEAD")
 	hashOutput, err := hashCmd.Output()
 	if err != nil {
+		// Fallback to environment variables
+		if buildHash := os.Getenv("GIT_COMMIT_HASH"); buildHash != "" {
+			if len(buildHash) >= 8 {
+				buildHash = buildHash[:8]
+			}
+			return buildHash, "unknown"
+		}
 		return "unknown", "unknown"
 	}
 	commitHash := strings.TrimSpace(string(hashOutput))
@@ -236,7 +258,7 @@ func getGitCommitInfo() (string, string) {
 		return commitHash, "unknown"
 	}
 	commitDateStr := strings.TrimSpace(string(dateOutput))
-
+	
 	// Parse the date and format it as YYYYMMDD-hh:mm
 	if commitDate, err := time.Parse("2006-01-02 15:04:05 -0700", commitDateStr); err == nil {
 		return commitHash, commitDate.Format("20060102-15:04")

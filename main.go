@@ -436,7 +436,7 @@ func processEvent(evt nostr.RelayEvent, npubToUser map[string]User, hexToUser ma
 		for _, user := range npubToUser {
 			if isDirectMessageForUser(event, user) {
 				fmt.Printf("📨 DM for %s from %s\n", user.Username, eventNpub)
-				processDirectMessage(event, user, client, config, sqliteDB, emailService)
+				processDirectMessage(event, user, npubToUser, client, config, sqliteDB, emailService)
 				matched = true
 			}
 		}
@@ -478,7 +478,7 @@ func isDirectMessageForUser(event *nostr.Event, user User) bool {
 }
 
 // processDirectMessage handles processing of NIP-4 encrypted direct messages
-func processDirectMessage(event *nostr.Event, user User, client *mongo.Client, config *Config, sqliteDB *sql.DB, emailService *EmailService) {
+func processDirectMessage(event *nostr.Event, user User, npubToUser map[string]User, client *mongo.Client, config *Config, sqliteDB *sql.DB, emailService *EmailService) {
 
 	// Skip NIP-4 content validation for now - we'll process all kind 4 events
 	// if !validateNIP4Message(event) {
@@ -493,22 +493,15 @@ func processDirectMessage(event *nostr.Event, user User, client *mongo.Client, c
 		eventNpub = event.PubKey // fallback to hex
 	}
 
-	// Verify sender NIP-5
-	var isVerified bool
-	var senderNIP5 string
-
-	isVerified, senderNIP5, err = verifyNIP5FromDB(event.PubKey, client)
-	if err != nil {
-		fmt.Printf("❌ NIP-5 verification failed for %s: %v\n", eventNpub, err)
-		return
-	}
-
-	if !isVerified {
+	// Check if sender is in our list of valid npubs (instead of database lookup)
+	senderUser, exists := npubToUser[eventNpub]
+	if !exists {
 		fmt.Printf("⚠️  Skipping DM from unverified user: %s\n", eventNpub)
 		return
 	}
 
-	fmt.Printf("✅ NIP-5 verified: %s -> %s\n", eventNpub, senderNIP5)
+	senderNIP5 := fmt.Sprintf("%s@trustroots.org", senderUser.Username)
+	fmt.Printf("✅ Verified sender: %s -> %s\n", eventNpub, senderNIP5)
 
 	// Create a notification event with placeholder content (since we can't decrypt)
 	notificationEvent := *event
@@ -545,30 +538,6 @@ func min(a, b int) int {
 		return a
 	}
 	return b
-}
-
-// verifyNIP5FromDB checks if a pubkey has a valid NIP-5 identifier by looking up in MongoDB
-func verifyNIP5FromDB(hexPubkey string, client *mongo.Client) (bool, string, error) {
-	// Convert hex pubkey to npub for database lookup
-	npub, err := hexToNpub(hexPubkey)
-	if err != nil {
-		return false, "", fmt.Errorf("invalid pubkey: %v", err)
-	}
-
-	collection := client.Database("trustroots").Collection("users")
-
-	var user User
-	err = collection.FindOne(context.TODO(), bson.M{"nostrNpub": npub}).Decode(&user)
-	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			return false, "", nil
-		}
-		return false, "", fmt.Errorf("failed to query user: %v", err)
-	}
-
-	// User found in database - this implies username@trustroots.org is a valid NIP-5 identifier
-	nip5 := fmt.Sprintf("%s@trustroots.org", user.Username)
-	return true, nip5, nil
 }
 
 // getConfig returns a basic config for MongoDB connection

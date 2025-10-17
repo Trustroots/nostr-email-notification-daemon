@@ -377,7 +377,14 @@ func processEvent(evt nostr.RelayEvent, npubToUser map[string]User, hexToUser ma
 	}
 
 	event := evt.Event
-	fmt.Printf("📝 Received event: %s (kind %v) from %s\n", event.ID, event.Kind, event.PubKey)
+
+	// Convert event pubkey to npub for display
+	eventNpub, err := hexToNpub(event.PubKey)
+	if err != nil {
+		fmt.Printf("⚠️  Warning: Failed to convert event pubkey to npub: %v\n", err)
+		eventNpub = event.PubKey // fallback to hex
+	}
+	fmt.Printf("📝 Received event: %s (kind %v) from %s\n", event.ID, event.Kind, eventNpub)
 
 	// Check if this note has already been processed
 	alreadyProcessed, err := isNoteProcessed(sqliteDB, event.ID)
@@ -389,13 +396,6 @@ func processEvent(evt nostr.RelayEvent, npubToUser map[string]User, hexToUser ma
 	if alreadyProcessed {
 		fmt.Printf("⏭️  Skipping already processed note: %s\n", event.ID)
 		return
-	}
-
-	// Convert event pubkey to npub for display
-	eventNpub, err := hexToNpub(event.PubKey)
-	if err != nil {
-		fmt.Printf("⚠️  Warning: Failed to convert event pubkey to npub: %v\n", err)
-		eventNpub = event.PubKey // fallback to hex
 	}
 
 	// Handle NIP-4 encrypted direct messages only
@@ -419,7 +419,13 @@ func processEvent(evt nostr.RelayEvent, npubToUser map[string]User, hexToUser ma
 
 func displayEmailNotification(event *nostr.Event, user User, relayURL string, emailContent string) {
 	createdTime := event.CreatedAt.Time()
-	npub := event.PubKey
+
+	// Convert event pubkey to npub for display
+	npub, err := hexToNpub(event.PubKey)
+	if err != nil {
+		fmt.Printf("⚠️  Warning: Failed to convert event pubkey to npub: %v\n", err)
+		npub = event.PubKey // fallback to hex
+	}
 	fmt.Printf("📧 %s → %s: %s\n", npub, user.Username, event.Content)
 	fmt.Printf("   Event: %s | %s\n", event.ID, createdTime.Format("15:04:05"))
 }
@@ -464,7 +470,13 @@ func processDirectMessage(event *nostr.Event, user User, client *mongo.Client, c
 	}
 
 	if !isVerified {
-		fmt.Printf("⚠️  Skipping DM from unverified user: %s (NIP-5 not found)\n", event.PubKey)
+		// Convert event pubkey to npub for display
+		eventNpub, err := hexToNpub(event.PubKey)
+		if err != nil {
+			fmt.Printf("⚠️  Warning: Failed to convert event pubkey to npub: %v\n", err)
+			eventNpub = event.PubKey // fallback to hex
+		}
+		fmt.Printf("⚠️  Skipping DM from unverified user: %s (NIP-5 not found)\n", eventNpub)
 		return
 	}
 

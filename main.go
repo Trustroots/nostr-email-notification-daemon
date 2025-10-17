@@ -419,8 +419,6 @@ func processEvent(evt nostr.RelayEvent, npubToUser map[string]User, hexToUser ma
 		fmt.Printf("⚠️  Warning: Failed to convert event pubkey to npub: %v\n", err)
 		eventNpub = event.PubKey // fallback to hex
 	}
-	fmt.Printf("📝 Received event: %s (kind %v) from %s\n", event.ID, event.Kind, eventNpub)
-
 	// Check if this note has already been processed
 	alreadyProcessed, err := isNoteProcessed(sqliteDB, event.ID)
 	if err != nil {
@@ -429,26 +427,22 @@ func processEvent(evt nostr.RelayEvent, npubToUser map[string]User, hexToUser ma
 	}
 
 	if alreadyProcessed {
-		fmt.Printf("⏭️  Skipping already processed note: %s\n", event.ID)
 		return
 	}
 
 	// Handle NIP-4 encrypted direct messages only
 	if event.Kind == 4 {
-		fmt.Printf("🔍 Checking encrypted DM...\n")
 		matched := false
 		for _, user := range npubToUser {
 			if isDirectMessageForUser(event, user) {
-				fmt.Printf("✅ MATCH FOUND! DM for %s (%s)\n", user.Username, user.Email)
+				fmt.Printf("📨 DM for %s from %s\n", user.Username, eventNpub)
 				processDirectMessage(event, user, client, config, sqliteDB, emailService)
 				matched = true
 			}
 		}
 		if !matched {
-			fmt.Printf("ℹ️  No matching recipient found for DM from %s\n", eventNpub)
+			fmt.Printf("ℹ️  No matching recipient for DM from %s\n", eventNpub)
 		}
-	} else {
-		fmt.Printf("ℹ️  Skipping non-DM event (kind %v) from %s\n", event.Kind, eventNpub)
 	}
 }
 
@@ -485,7 +479,6 @@ func isDirectMessageForUser(event *nostr.Event, user User) bool {
 
 // processDirectMessage handles processing of NIP-4 encrypted direct messages
 func processDirectMessage(event *nostr.Event, user User, client *mongo.Client, config *Config, sqliteDB *sql.DB, emailService *EmailService) {
-	fmt.Printf("📨 Processing NIP-4 direct message for %s\n", user.Username)
 
 	// Skip NIP-4 content validation for now - we'll process all kind 4 events
 	// if !validateNIP4Message(event) {
@@ -493,29 +486,29 @@ func processDirectMessage(event *nostr.Event, user User, client *mongo.Client, c
 	//	return
 	// }
 
+	// Convert event pubkey to npub for display
+	eventNpub, err := hexToNpub(event.PubKey)
+	if err != nil {
+		fmt.Printf("⚠️  Warning: Failed to convert event pubkey to npub: %v\n", err)
+		eventNpub = event.PubKey // fallback to hex
+	}
+
 	// Verify sender NIP-5
 	var isVerified bool
 	var senderNIP5 string
-	var err error
 
 	isVerified, senderNIP5, err = verifyNIP5FromDB(event.PubKey, client)
 	if err != nil {
-		fmt.Printf("❌ NIP-5 verification failed for %s: %v\n", event.PubKey, err)
+		fmt.Printf("❌ NIP-5 verification failed for %s: %v\n", eventNpub, err)
 		return
 	}
 
 	if !isVerified {
-		// Convert event pubkey to npub for display
-		eventNpub, err := hexToNpub(event.PubKey)
-		if err != nil {
-			fmt.Printf("⚠️  Warning: Failed to convert event pubkey to npub: %v\n", err)
-			eventNpub = event.PubKey // fallback to hex
-		}
-		fmt.Printf("⚠️  Skipping DM from unverified user: %s (NIP-5 not found)\n", eventNpub)
+		fmt.Printf("⚠️  Skipping DM from unverified user: %s\n", eventNpub)
 		return
 	}
 
-	fmt.Printf("✅ NIP-5 verified: %s -> %s\n", event.PubKey, senderNIP5)
+	fmt.Printf("✅ NIP-5 verified: %s -> %s\n", eventNpub, senderNIP5)
 
 	// Create a notification event with placeholder content (since we can't decrypt)
 	notificationEvent := *event
@@ -524,17 +517,15 @@ func processDirectMessage(event *nostr.Event, user User, client *mongo.Client, c
 	// Send email notification
 	err = emailService.ProcessNostrDirectMessage(&notificationEvent, user, senderNIP5)
 	if err != nil {
-		fmt.Printf("❌ Failed to process DM email for %s: %v\n", user.Username, err)
+		fmt.Printf("❌ Failed to send email to %s: %v\n", user.Username, err)
 	} else {
-		fmt.Printf("📧 DM notification queued for %s (%s)\n", user.Username, user.Email)
+		fmt.Printf("📧 Email sent to %s\n", user.Username)
 	}
 
 	// Mark this note as processed
 	err = markNoteProcessed(sqliteDB, event.ID, "relay", user.Email)
 	if err != nil {
 		fmt.Printf("⚠️  Error marking DM as processed: %v\n", err)
-	} else {
-		fmt.Printf("✅ Marked DM %s as processed\n", event.ID)
 	}
 }
 

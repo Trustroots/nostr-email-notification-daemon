@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -59,6 +60,11 @@ type NIP5Response struct {
 // Use the library's message types instead of custom implementation
 
 func main() {
+	// Display git commit information
+	commitHash, commitDate := getGitCommitInfo()
+	fmt.Printf("🚀 Starting nostr-email-notification-daemon [%s %s]\n", commitHash, commitDate)
+	fmt.Println()
+
 	// Parse command line arguments
 	listUsersFlag := flag.Bool("list-users", false, "List all users in 3 categories")
 	nostrListenFlag := flag.Bool("nostr-listen", false, "Listen to nostr relays for direct messages to valid npubs")
@@ -208,6 +214,35 @@ func getEnvOrDefault(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// getGitCommitInfo returns the first 8 characters of the commit hash and the commit date
+func getGitCommitInfo() (string, string) {
+	// Get commit hash
+	hashCmd := exec.Command("git", "rev-parse", "HEAD")
+	hashOutput, err := hashCmd.Output()
+	if err != nil {
+		return "unknown", "unknown"
+	}
+	commitHash := strings.TrimSpace(string(hashOutput))
+	if len(commitHash) >= 8 {
+		commitHash = commitHash[:8]
+	}
+
+	// Get commit date
+	dateCmd := exec.Command("git", "log", "-1", "--format=%ci")
+	dateOutput, err := dateCmd.Output()
+	if err != nil {
+		return commitHash, "unknown"
+	}
+	commitDateStr := strings.TrimSpace(string(dateOutput))
+
+	// Parse the date and format it as YYYYMMDD-hh:mm
+	if commitDate, err := time.Parse("2006-01-02 15:04:05 -0700", commitDateStr); err == nil {
+		return commitHash, commitDate.Format("20060102-15:04")
+	}
+
+	return commitHash, "unknown"
 }
 
 func connectToMongoDB(config *Config) (*mongo.Client, error) {

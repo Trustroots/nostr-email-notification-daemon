@@ -1,0 +1,24 @@
+{{ .Title }}
+
+Hello {{ .Username }},
+
+You have {{ .Content.messageCount }} new encrypted message{{ if gt .Content.messageCount 1 }}s{{ end }} waiting for you on the Nostr network.
+
+These messages are encrypted using the NIP-4 standard and can only be read in a compatible Nostr client.
+
+View your messages: {{ .Content.buttonURL }}
+
+About Encrypted Messages:
+- Messages are encrypted using NIP-4 standard
+- Only you and the sender can read the content  
+- View messages in any compatible Nostr client
+- TRipch.at provides a web-based interface
+
+Best regards,
+{{ .From.Name }}
+
+---
+{{ .FooterURL }}
+Support: {{ .SupportURL }}
+
+

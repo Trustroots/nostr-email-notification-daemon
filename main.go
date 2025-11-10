@@ -68,6 +68,7 @@ func main() {
 	// Parse command line arguments
 	listUsersFlag := flag.Bool("list-users", false, "List all users in 3 categories")
 	nostrListenFlag := flag.Bool("nostr-listen", false, "Listen to nostr relays for direct messages to valid npubs")
+	previewFlag := flag.Bool("preview", false, "Start email preview server")
 	flag.Parse()
 
 	// Load configuration from environment variables
@@ -116,6 +117,12 @@ func main() {
 
 	if *listUsersFlag {
 		displayUserList(validNpubs, invalidNpubs, emptyNpubs)
+		return
+	}
+
+	if *previewFlag {
+		// Start the email preview server
+		startPreviewServer()
 		return
 	}
 
@@ -404,6 +411,9 @@ func listenToNostrRelays(validNpubs []User, relays []string, client *mongo.Clien
 	fmt.Println("Press Ctrl+C to stop listening")
 	fmt.Println()
 
+	// Start digest scheduler in background
+	go runDigestScheduler(sqliteDB, emailService, validNpubs)
+
 	// Create relay pool
 	pool := nostr.NewSimplePool(context.Background())
 
@@ -522,22 +532,12 @@ func processDirectMessage(event *nostr.Event, user User, npubToUser map[string]U
 		return
 	}
 
-	senderNIP5 := fmt.Sprintf("%s@trustroots.org", senderUser.Username)
-	fmt.Printf("✅ Verified sender: %s -> %s\n", eventNpub, senderNIP5)
+	fmt.Printf("✅ Verified sender: %s -> %s\n", eventNpub, senderUser.Username)
 
-	// Create a notification event with placeholder content (since we can't decrypt)
-	notificationEvent := *event
-	notificationEvent.Content = "[Encrypted Direct Message - Content not available]"
+	// Store event info for digest (no immediate email)
+	fmt.Printf("📝 Storing DM for %s from %s (will be included in next digest)\n", user.Username, eventNpub)
 
-	// Send email notification
-	err = emailService.ProcessNostrDirectMessage(&notificationEvent, user, senderNIP5, eventNpub)
-	if err != nil {
-		fmt.Printf("❌ Failed to send email to %s: %v\n", user.Username, err)
-	} else {
-		fmt.Printf("📧 Email sent to %s\n", user.Username)
-	}
-
-	// Mark this note as processed
+	// Mark this note as processed but NOT notified (will be included in digest)
 	err = markNoteProcessed(sqliteDB, event.ID, "relay", user.Email)
 	if err != nil {
 		fmt.Printf("⚠️  Error marking DM as processed: %v\n", err)
@@ -588,12 +588,21 @@ func initSQLiteDB() (*sql.DB, error) {
 		event_id TEXT PRIMARY KEY,
 		processed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		relay_url TEXT,
-		user_email TEXT
+		user_email TEXT,
+		notified BOOLEAN DEFAULT 0
 	);`
 
 	_, err = db.Exec(createTableSQL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create table: %v", err)
+	}
+
+	// Migration: Add notified column if it doesn't exist (for existing databases)
+	alterTableSQL := `ALTER TABLE processed_notes ADD COLUMN notified BOOLEAN DEFAULT 0;`
+	_, err = db.Exec(alterTableSQL)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		// Ignore "duplicate column" error, log others
+		log.Printf("Warning: Failed to add notified column (may already exist): %v", err)
 	}
 
 	return db, nil
@@ -685,6 +694,124 @@ func hexToNpub(hexPubkey string) (string, error) {
 	}
 
 	return npub, nil
+}
+
+// UnnotifiedEvent represents an unnotified event for digest
+type UnnotifiedEvent struct {
+	EventID     string
+	ProcessedAt time.Time
+	UserEmail   string
+}
+
+// runDigestScheduler starts a ticker that runs digest emails every hour
+func runDigestScheduler(sqliteDB *sql.DB, emailService *EmailService, validNpubs []User) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	fmt.Println("🕐 Starting hourly digest scheduler...")
+
+	// Run immediately on startup
+	sendDigestEmails(sqliteDB, emailService, validNpubs)
+
+	// Then run every hour
+	for range ticker.C {
+		sendDigestEmails(sqliteDB, emailService, validNpubs)
+	}
+}
+
+// sendDigestEmails sends digest emails to users with unnotified events
+func sendDigestEmails(sqliteDB *sql.DB, emailService *EmailService, validNpubs []User) {
+	fmt.Println("📧 Running digest email check...")
+
+	// Get all users with unnotified events
+	userEvents, err := getUnnotifiedEventsByUser(sqliteDB)
+	if err != nil {
+		fmt.Printf("❌ Error getting unnotified events: %v\n", err)
+		return
+	}
+
+	// Send digest emails
+	for userEmail, eventCount := range userEvents {
+		if eventCount == 0 {
+			continue
+		}
+
+		// Find user info
+		var user User
+		for _, u := range validNpubs {
+			if u.Email == userEmail {
+				user = u
+				break
+			}
+		}
+
+		if user.Email == "" {
+			fmt.Printf("⚠️  User not found for email: %s\n", userEmail)
+			continue
+		}
+
+		// Mark events as notified BEFORE sending to avoid duplicates if marking fails
+		// This ensures we don't send duplicate emails even if there's a failure
+		err := markEventsAsNotified(sqliteDB, userEmail)
+		if err != nil {
+			fmt.Printf("⚠️  Error marking events as notified for %s: %v (skipping email)\n", user.Username, err)
+			continue
+		}
+
+		// Generate and send digest email
+		err = emailService.ProcessDigestEmail(user, eventCount)
+		if err != nil {
+			fmt.Printf("❌ Failed to send digest email to %s: %v (events already marked as notified)\n", user.Username, err)
+			// Note: Events are already marked as notified, so they won't be retried
+			// This prevents duplicate emails if the email service is temporarily down
+			continue
+		}
+
+		fmt.Printf("📧 Digest sent to %s (%d messages)\n", user.Username, eventCount)
+	}
+}
+
+// getUnnotifiedEventsByUser returns a map of user email to count of unnotified events
+func getUnnotifiedEventsByUser(sqliteDB *sql.DB) (map[string]int, error) {
+	query := `
+		SELECT user_email, COUNT(*) as count 
+		FROM processed_notes 
+		WHERE notified = 0 AND user_email IS NOT NULL 
+		GROUP BY user_email
+	`
+
+	rows, err := sqliteDB.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query unnotified events: %v", err)
+	}
+	defer rows.Close()
+
+	userEvents := make(map[string]int)
+	for rows.Next() {
+		var userEmail string
+		var count int
+		if err := rows.Scan(&userEmail, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %v", err)
+		}
+		userEvents[userEmail] = count
+	}
+
+	// Check for errors from iterating over rows
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %v", err)
+	}
+
+	return userEvents, nil
+}
+
+// markEventsAsNotified marks all unnotified events for a user as notified
+func markEventsAsNotified(sqliteDB *sql.DB, userEmail string) error {
+	query := `UPDATE processed_notes SET notified = 1 WHERE user_email = ? AND notified = 0`
+	_, err := sqliteDB.Exec(query, userEmail)
+	if err != nil {
+		return fmt.Errorf("failed to mark events as notified: %v", err)
+	}
+	return nil
 }
 
 func displaySummary(users []User, validNpubs, invalidNpubs, emptyNpubs []User) {

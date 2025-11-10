@@ -3,16 +3,16 @@
 
 Hello {{.Username}},
 
-🔒 ENCRYPTED MESSAGE from {{.SenderNIP5}}
+🔒 ENCRYPTED MESSAGE from {{.SenderUsername}}
      {{.SenderProfileURL}}
 
 Open your Nostr client to read it.
 
 TO READ:
-Open your Nostr client (Snort, Damus, or Amethyst) and look for the message from {{.SenderNIP5}}.
+Open your Nostr client (Snort, Damus, or Amethyst) and look for the message from {{.SenderUsername}}.
 
 TO REPLY:
-Use your Nostr client to send a message back to {{.SenderNIP5}}.
+Use your Nostr client to send a message back to {{.SenderUsername}}.
 
 View online: {{.Content.buttonURL}}
 

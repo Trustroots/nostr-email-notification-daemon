@@ -16,20 +16,20 @@ import (
 // Sample data for direct message preview
 var sampleDMData = EmailTemplateData{
 	// User data
-	Username:  "testuser",
-	Name:      "Test User",
-	FirstName: "Test",
-	Email:     "testuser@example.com",
+	Username:  "alex_wanderer",
+	Name:      "Alex Wanderer",
+	FirstName: "Alex",
+	Email:     "alex.wanderer@example.com",
 
 	// URLs
 	HeaderURL:        "https://trustroots.org",
 	FooterURL:        "https://trustroots.org",
 	SupportURL:       "https://trustroots.org/support",
-	ProfileURL:       "https://www.trustroots.org/profile/testuser",
-	SenderProfileURL: "https://www.trustroots.org/profile/nostroots",
+	ProfileURL:       "https://www.trustroots.org/profile/alex_wanderer",
+	SenderProfileURL: "https://www.trustroots.org/profile/maria_traveler",
 
 	// Email content
-	Subject:   "Encrypted DM from nostroots@trustroots.org",
+	Subject:   "Encrypted DM from maria_traveler@trustroots.org",
 	Title:     "New Encrypted Direct Message",
 	MailTitle: "New Encrypted Direct Message",
 
@@ -45,17 +45,77 @@ var sampleDMData = EmailTemplateData{
 
 	// Custom content
 	Content: map[string]interface{}{
-		"buttonURL":  "https://tripch.at/#dm:npub1sample123456789abcdefghijklmnopqrstuvwxyz",
-		"buttonText": "View on TRipch.at",
+		"buttonURL":      "https://tripch.at/#dm:npub1maria123456789abcdefghijklmnopqrstuvwxyz",
+		"buttonText":     "View on TRipch.at",
+		"senderName":     "Maria Traveler",
+		"messagePreview": "Hey Alex! I saw your profile and I'm planning to visit Barcelona next month. Would love to meet up for coffee and hear about your travels!",
+		"senderLocation": "Madrid, Spain",
+		"messageTime":    "2 hours ago",
 	},
 
 	// Nostr specific fields
-	EventContent:  "[Encrypted Direct Message - Content not available]",
-	EventID:       "sample-dm-event-id-67890",
-	CreatedAt:     time.Now().Format("2006-01-02 15:04:05 UTC"),
-	SenderNIP5:    "nostroots@trustroots.org",
-	SenderNpub:    "npub1sample123456789abcdefghijklmnopqrstuvwxyz",
-	RecipientNpub: "npub1recipient123456789abcdefghijklmnopqrstuvwxyz",
+	EventContent:   "[Encrypted Direct Message - Content not available]",
+	EventID:        "sample-dm-event-id-67890abcdef123456789",
+	CreatedAt:      time.Now().Format("2006-01-02 15:04:05 UTC"),
+	SenderNIP5:     "maria_traveler@trustroots.org",
+	SenderUsername: "maria_traveler",
+	SenderNpub:     "npub1maria123456789abcdefghijklmnopqrstuvwxyz",
+	RecipientNpub:  "npub1alex123456789abcdefghijklmnopqrstuvwxyz",
+}
+
+// Sample data for digest email preview
+var sampleDigestData = EmailTemplateData{
+	// User data
+	Username:  "sarah_explorer",
+	Name:      "Sarah Explorer",
+	FirstName: "Sarah",
+	Email:     "sarah.explorer@example.com",
+
+	// URLs
+	HeaderURL:        "https://trustroots.org",
+	FooterURL:        "https://trustroots.org",
+	SupportURL:       "https://trustroots.org/support",
+	ProfileURL:       "https://www.trustroots.org/profile/sarah_explorer",
+	SenderProfileURL: "https://www.trustroots.org/profile/nostroots",
+
+	// Email content
+	Subject:   "You have 5 new encrypted messages",
+	Title:     "New Encrypted Messages Digest",
+	MailTitle: "New Encrypted Messages Digest",
+
+	// Sender info
+	From: EmailSender{
+		Name:    "Trustroots Nostr",
+		Address: "noreply@trustroots.org",
+	},
+
+	// Campaign tracking
+	UTMCampaign:       "nostr-digest",
+	SparkpostCampaign: "nostr-digest-test",
+
+	// Custom content for digest
+	Content: map[string]interface{}{
+		"messageCount": 5,
+		"buttonURL":    "https://tripch.at/#dm:npub1sarah123456789abcdefghijklmnopqrstuvwxyz",
+		"buttonText":   "View Messages on TRipch.at",
+		"senders": []map[string]interface{}{
+			{"name": "Carlos Backpacker", "location": "Mexico City", "time": "3 hours ago"},
+			{"name": "Emma Nomad", "location": "Berlin", "time": "5 hours ago"},
+			{"name": "James Wanderer", "location": "Tokyo", "time": "1 day ago"},
+			{"name": "Lisa Explorer", "location": "Bangkok", "time": "1 day ago"},
+			{"name": "Mike Traveler", "location": "Sydney", "time": "2 days ago"},
+		},
+		"timeRange": "last 2 days",
+	},
+
+	// Nostr specific fields
+	EventContent:   "[Digest of 5 encrypted messages]",
+	EventID:        "sample-digest-event-id-12345abcdef67890",
+	CreatedAt:      time.Now().Format("2006-01-02 15:04:05 UTC"),
+	SenderNIP5:     "nostroots@trustroots.org",
+	SenderUsername: "nostroots",
+	SenderNpub:     "npub1sarah123456789abcdefghijklmnopqrstuvwxyz",
+	RecipientNpub:  "npub1sarah123456789abcdefghijklmnopqrstuvwxyz",
 }
 
 // renderHTMLTemplate renders the HTML email template
@@ -125,6 +185,30 @@ func handleTextDMPreview(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, text)
 }
 
+// handleDigestPreview renders the digest email preview
+func handleDigestPreview(w http.ResponseWriter, r *http.Request) {
+	html, err := renderHTMLTemplate("digest", sampleDigestData)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error rendering template: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprint(w, html)
+}
+
+// handleTextDigestPreview renders the digest text email preview
+func handleTextDigestPreview(w http.ResponseWriter, r *http.Request) {
+	text, err := renderTextTemplate("digest", sampleDigestData)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error rendering template: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	fmt.Fprint(w, text)
+}
+
 // handleIndex renders the main index page with links to all previews
 func handleIndex(w http.ResponseWriter, r *http.Request) {
 	html := `
@@ -168,12 +252,24 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
         </div>
         
         <div class="preview-section">
+            <h2>Digest Notifications</h2>
+            <div class="description">When multiple encrypted messages are received (digest format)</div>
+            <div class="preview-links">
+                <a href="/preview/digest/html" target="_blank">HTML Preview</a>
+                <a href="/preview/digest/text" target="_blank">Text Preview</a>
+            </div>
+        </div>
+        
+        <div class="preview-section">
             <h2>Sample Data</h2>
             <div class="description">Current sample data being used for previews:</div>
             <ul>
-                <li><strong>Recipient:</strong> testuser@trustroots.org (testuser)</li>
-                <li><strong>Sender:</strong> nostroots@trustroots.org</li>
-                <li><strong>Event ID:</strong> sample-event-id-12345</li>
+                <li><strong>Direct Message Recipient:</strong> alex.wanderer@example.com (alex_wanderer)</li>
+                <li><strong>Direct Message Sender:</strong> maria_traveler@trustroots.org</li>
+                <li><strong>Digest Recipient:</strong> sarah.explorer@example.com (sarah_explorer)</li>
+                <li><strong>Direct Message Event ID:</strong> sample-dm-event-id-67890abcdef123456789</li>
+                <li><strong>Digest Event ID:</strong> sample-digest-event-id-12345abcdef67890</li>
+                <li><strong>Digest Message Count:</strong> 5 messages from 5 different senders</li>
                 <li><strong>Profile URLs:</strong> Dynamic based on usernames</li>
             </ul>
         </div>
@@ -190,6 +286,8 @@ func startPreviewServer() {
 	http.HandleFunc("/", handleIndex)
 	http.HandleFunc("/preview/dm/html", handleDMPreview)
 	http.HandleFunc("/preview/dm/text", handleTextDMPreview)
+	http.HandleFunc("/preview/digest/html", handleDigestPreview)
+	http.HandleFunc("/preview/digest/text", handleTextDigestPreview)
 
 	// Start server
 	port := "8080"
@@ -197,6 +295,8 @@ func startPreviewServer() {
 	fmt.Println("📧 Available previews:")
 	fmt.Println("   • HTML Direct Message: http://localhost:8080/preview/dm/html")
 	fmt.Println("   • Text Direct Message: http://localhost:8080/preview/dm/text")
+	fmt.Println("   • HTML Digest: http://localhost:8080/preview/digest/html")
+	fmt.Println("   • Text Digest: http://localhost:8080/preview/digest/text")
 	fmt.Println("\nPress Ctrl+C to stop the server")
 
 	log.Fatal(http.ListenAndServe(":"+port, nil))

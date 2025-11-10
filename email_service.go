@@ -43,12 +43,13 @@ type EmailTemplateData struct {
 	Content map[string]interface{}
 
 	// Nostr specific fields
-	EventContent  string
-	EventID       string
-	CreatedAt     string
-	SenderNIP5    string
-	SenderNpub    string
-	RecipientNpub string
+	EventContent   string
+	EventID        string
+	CreatedAt      string
+	SenderNIP5     string
+	SenderUsername string
+	SenderNpub     string
+	RecipientNpub  string
 }
 
 // EmailSender represents sender information
@@ -222,18 +223,19 @@ func (es *EmailService) GenerateNostrDirectMessageEmail(event *nostr.Event, reci
 
 	// Create email data
 	data := EmailTemplateData{
-		Username:      recipientUser.Username,
-		Name:          recipientUser.Username,
-		FirstName:     recipientUser.Username,
-		Email:         recipientUser.Email,
-		SenderNIP5:    senderNIP5,
-		EventContent:  event.Content,
-		EventID:       event.ID,
-		CreatedAt:     event.CreatedAt.Time().Format("2006-01-02 15:04:05 UTC"),
-		SenderNpub:    senderNpub,
-		RecipientNpub: recipientUser.NostrNpub,
-		Title:         "🔒 New Encrypted Direct Message",
-		Subject:       fmt.Sprintf("🔒 Encrypted DM from %s", senderNIP5),
+		Username:       recipientUser.Username,
+		Name:           recipientUser.Username,
+		FirstName:      recipientUser.Username,
+		Email:          recipientUser.Email,
+		SenderNIP5:     senderNIP5,
+		SenderUsername: senderUsername,
+		EventContent:   event.Content,
+		EventID:        event.ID,
+		CreatedAt:      event.CreatedAt.Time().Format("2006-01-02 15:04:05 UTC"),
+		SenderNpub:     senderNpub,
+		RecipientNpub:  recipientUser.NostrNpub,
+		Title:          "🔒 New Encrypted Direct Message",
+		Subject:        fmt.Sprintf("🔒 Encrypted DM from %s", senderUsername),
 		From: EmailSender{
 			Name:    "Trustroots Nostr",
 			Address: es.FromEmail,
@@ -256,6 +258,69 @@ func (es *EmailService) GenerateNostrDirectMessageEmail(event *nostr.Event, reci
 
 	// Generate text content
 	textContent, err := es.renderTextTemplate("nostr_direct_message", data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render text template: %v", err)
+	}
+
+	return &EmailTemplate{
+		Subject:     data.Subject,
+		HTMLContent: htmlContent,
+		TextContent: textContent,
+	}, nil
+}
+
+// ProcessDigestEmail processes a digest email for multiple messages
+func (es *EmailService) ProcessDigestEmail(user User, messageCount int) error {
+	// Generate email template for digest
+	template, err := es.GenerateDigestEmail(user, messageCount)
+	if err != nil {
+		return fmt.Errorf("failed to generate digest email template: %v", err)
+	}
+
+	// Queue email job
+	job := EmailJob{
+		To:      user.Email,
+		Subject: template.Subject,
+		HTML:    template.HTMLContent,
+		Text:    template.TextContent,
+	}
+
+	es.QueueEmailJob(job)
+	return nil
+}
+
+// GenerateDigestEmail creates a digest email for multiple messages
+func (es *EmailService) GenerateDigestEmail(user User, messageCount int) (*EmailTemplate, error) {
+	// Create email data
+	data := EmailTemplateData{
+		Username:  user.Username,
+		Name:      user.Username,
+		FirstName: user.Username,
+		Email:     user.Email,
+		Title:     "🔔 New Encrypted Messages",
+		Subject:   fmt.Sprintf("🔔 You have %d new encrypted message(s)", messageCount),
+		From: EmailSender{
+			Name:    "Trustroots Nostr",
+			Address: es.FromEmail,
+		},
+		SupportURL: "https://trustroots.org/support",
+		FooterURL:  "https://trustroots.org",
+		ProfileURL: fmt.Sprintf("https://www.trustroots.org/profile/%s", user.Username),
+		Content: map[string]interface{}{
+			"messageCount": messageCount,
+			"buttonURL":    "https://tripch.at/",
+			"buttonText":   "View Messages on TRipch.at",
+		},
+	}
+
+	// Generate HTML content
+	htmlContent, err := es.renderHTMLTemplate("digest", data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render HTML template: %v", err)
+	}
+
+	// Generate text content
+	textContent, err := es.renderTextTemplate("digest", data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to render text template: %v", err)
 	}
